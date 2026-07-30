@@ -196,6 +196,25 @@ cd /path/to/todo-app
 npm install
 ```
 
+### Configure Environment Variables
+Copy the example file and update secrets before running the app:
+
+```bash
+# Windows PowerShell
+Copy-Item .env.example .env.local
+
+# macOS / Linux
+cp .env.example .env.local
+```
+
+Required variables:
+
+- `JWT_SECRET` - long random secret used to sign session cookies
+- `RP_ID` - relying party ID for WebAuthn (use your host name in production)
+- `RP_NAME` - display name shown during passkey registration
+- `RP_ORIGIN` - full origin for the current environment
+- `DATABASE_PATH` - SQLite file path (defaults to `./todos.db`)
+
 You should see output like:
 ```
 added 345 packages, and audited 346 packages in 45s
@@ -256,6 +275,16 @@ Expected output:
    - Enter todo title: "Test my first todo"
    - Click "Add"
    - Todo appears in list ✅
+
+### Production Verification Commands
+Before deploying, run:
+
+```bash
+npm run build
+npm run lint
+npm run test:unit
+npm test
+```
 
 ### Stop the Server
 Press `Ctrl+C` in the terminal running `npm run dev`
@@ -565,8 +594,8 @@ npx playwright install
 # Run with headed mode to see what's happening
 npx playwright test --headed
 
-# Run specific test
-npx playwright test tests/01-authentication.spec.ts
+# Run a specific feature test
+npx playwright test tests/11-authentication-webauthn.spec.ts
 ```
 
 ---
@@ -592,7 +621,10 @@ I'm getting undefined for authenticator.counter. Check the copilot instructions 
 
 ### 4. Run Tests
 ```bash
-# Run all tests
+# Run unit tests
+npm run test:unit
+
+# Run browser tests
 npx playwright test
 
 # View test report
@@ -630,7 +662,8 @@ npm start            # Start production server
 npm run lint         # Run ESLint
 
 # Testing
-npx playwright test                    # Run all tests
+npm run test:unit                      # Run unit tests
+npx playwright test                    # Run browser tests
 npx playwright test --ui              # Interactive mode
 npx playwright test --headed          # See browser
 npx playwright show-report            # View results
@@ -658,7 +691,7 @@ You've successfully completed setup when:
 - ✅ Todo app running on http://localhost:3000
 - ✅ Can register/login with WebAuthn
 - ✅ Can create and manage todos
-- ✅ Tests pass with `npx playwright test`
+- ✅ Tests pass with `npm run test:unit` and `npx playwright test`
 - ✅ Copilot references PRPs when asked about features
 
 ---

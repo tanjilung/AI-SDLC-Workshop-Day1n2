@@ -1,0 +1,33 @@
+import { NextResponse, type NextRequest } from 'next/server';
+import { createSession } from '@/lib/auth-server';
+import { verifyLogin, type AuthenticationResponseBody } from '@/lib/auth-webauthn';
+
+function getWebAuthnConfig() {
+  return {
+    rpId: process.env.RP_ID,
+    rpName: process.env.RP_NAME,
+    rpOrigin: process.env.RP_ORIGIN
+  };
+}
+
+export async function POST(request: NextRequest) {
+  const body = (await request.json()) as Partial<AuthenticationResponseBody>;
+  const username = body.username?.trim();
+
+  if (!username || !body.response) {
+    return NextResponse.json({ error: 'Username and response are required' }, { status: 400 });
+  }
+
+  const result = await verifyLogin({ username, response: body.response }, getWebAuthnConfig());
+
+  if (!result.verified || !result.user) {
+    return NextResponse.json({ error: result.error ?? 'Verification failed' }, { status: 401 });
+  }
+
+  await createSession({
+    userId: result.user.id,
+    username: result.user.username
+  });
+
+  return NextResponse.json({ success: true });
+}
