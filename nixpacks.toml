@@ -1,5 +1,4 @@
-[provider]
-image = "node"
+providers = ["node"]
 
 [phases.setup]
 nixPkgs = ["nodejs", "python3", "gcc", "gnumake", "pkg-config"]
@@ -8,9 +7,6 @@ nixPkgs = ["nodejs", "python3", "gcc", "gnumake", "pkg-config"]
 cmds = [
   "npm install --build-from-source --prefer-offline"
 ]
-
-[providers.node]
-packager = "npm"
 
 [phases.build]
 cmds = ["npm run build"]
