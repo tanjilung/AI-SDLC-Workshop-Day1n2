@@ -5,4 +5,4 @@ nixPkgs = ["...", "python3", "gcc", "gnumake"]
 cacheDirectories = [".next/cache", "node_modules/.cache"]
 
 [start]
-cmd = "npm run db:migrate && next start"
+cmd = "next start"
