@@ -52,7 +52,7 @@ function createPool(): Pool {
   }
   return new Pool({
     connectionString,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
+    ssl: false, // Disable SSL for internal Docker connections
   });
 }
 
