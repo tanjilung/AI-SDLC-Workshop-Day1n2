@@ -183,8 +183,8 @@ All queries use string column names — typos won't be caught at compile time:
 await db.execute(sql`SELECT * FROM todos WHERE user_id = ${userId}`)
 ```
 
-### 4. **pg Pool SSL in Production** (MEDIUM PRIORITY)
-`lib/db.ts` line 55 — `ssl: { rejectUnauthorized: false }` in production. Accepts any certificate.
+### 4. **pg Pool SSL for Docker/Internal Connections** (RESOLVED)
+`lib/db.ts` line 55 — `ssl: false` is set for internal Docker/Railway/Coolify connections where the pool connects to PostgreSQL via localhost or internal network. If deploying with external PostgreSQL over public internet, re-enable SSL with `rejectUnauthorized: true`.
 
 ### 5. **Facade Pattern Overhead** (LOW PRIORITY)
 `db.ts` lines 906-1221 define facade interfaces (`TodoFacade`, `TagFacade`, etc.) that are just thin wrappers around the raw SQL functions. Adds indirection without adding value.
