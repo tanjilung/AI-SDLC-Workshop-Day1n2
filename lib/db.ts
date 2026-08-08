@@ -1109,13 +1109,8 @@ function createSubtaskFacade(): SubtaskFacade {
       return rows[0] ? mapSubtaskRow(rows[0]) : null;
     },
     async update(id, userId, updates) {
-      const existing = await db
-        .select()
-        .from(schema.subtasks)
-        .innerJoin(schema.todos, eq(schema.subtasks.todoId, schema.todos.id))
-        .where(eq(schema.subtasks.id, id))
-        .where(eq(schema.todos.userId, userId))
-        .limit(1);
+      const q7 = (db.select().from(schema.subtasks).innerJoin(schema.todos, eq(schema.subtasks.todoId, schema.todos.id))) as any;
+      const existing = await q7.where(eq(schema.subtasks.id, id)).where(eq(schema.todos.userId, userId)).limit(1);
       if (!existing.length) throw new Error('Subtask not found');
       return updateSubtask(db, id, updates);
     },
