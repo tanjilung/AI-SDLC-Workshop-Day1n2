@@ -88,7 +88,7 @@ export function buildSessionCookie(token: string): SessionCookie {
     value: token,
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.COOKIE_SECURE === 'true',
     path: '/',
     maxAge: SESSION_MAX_AGE_SECONDS
   };

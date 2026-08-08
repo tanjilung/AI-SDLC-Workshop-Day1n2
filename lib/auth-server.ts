@@ -20,7 +20,7 @@ export async function deleteSession(): Promise<void> {
     path: '/',
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.COOKIE_SECURE === 'true',
     expires: new Date(0),
     maxAge: 0
   });

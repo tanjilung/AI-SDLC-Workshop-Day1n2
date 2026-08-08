@@ -214,6 +214,7 @@ Required variables:
 - `RP_NAME` - display name shown during passkey registration
 - `RP_ORIGIN` - full origin for the current environment
 - `DATABASE_PATH` - SQLite file path (defaults to `./todos.db`)
+- `COOKIE_SECURE` - set to `"true"` only with valid HTTPS; use `"false"` for HTTP or self-signed certs (e.g. DuckDNS, local dev)
 
 You should see output like:
 ```
