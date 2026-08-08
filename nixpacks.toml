@@ -1,8 +1,13 @@
 [provider]
 image = "node"
 
-[nixpacks]
-nixPkgs = ["python3", "gcc", "gnumake", "pkg-config", "openssl", "libjpeg-turbo", "libwebp", "libpng", "zlib", "libuv"]
+[phases.setup]
+nixPkgs = ['python3', 'pkg-config', 'sqlite-deprecated', 'gcc', 'glibc', 'make']
+
+[phases.dependencies]
+cmds = [
+  'npm install --build-from-source --prefer-offline'
+]
 
 [start]
 cmd = "next start"
