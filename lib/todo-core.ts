@@ -72,11 +72,6 @@ export function validateTodoDueDate(
     throw new Error('Due date must be a valid date');
   }
 
-  const minDueDate = new Date(now.getTime() + 60_000);
-  if (dueDate.getTime() < minDueDate.getTime()) {
-    throw new Error('Due date must be at least 1 minute in the future');
-  }
-
   return dueDate.toISOString();
 }
 
