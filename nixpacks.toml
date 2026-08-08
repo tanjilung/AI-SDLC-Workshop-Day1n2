@@ -9,5 +9,11 @@ cmds = [
   "npm install --build-from-source --prefer-offline"
 ]
 
+[providers.node]
+packager = "npm"
+
+[phases.build]
+cacheDirectories = ["node_modules/.cache", ".next/cache"]
+
 [start]
 cmd = "next start"
