@@ -11,10 +11,12 @@ A **Next.js 16** (React 19) full-stack ToDo application with authentication, cal
 |-------|-----------|
 | Framework | Next.js 16.0.0 (App Router) |
 | UI | React 19.0.0 + Tailwind CSS 4 |
-| Database | PostgreSQL via `pg` driver + Drizzle ORM (query builder only) |
+| Database | PostgreSQL via `pg` driver — raw SQL throughout (Drizzle ORM schema removed as dead code) |
 | Auth | WebAuthn (`@simplewebauthn/browser/server`) + JWT (`jose`) |
 | Testing | Playwright (E2E) + tsx (unit) |
 | Linting | ESLint 9 + TypeScript 5 |
+
+**Dependencies: 8 production, 14 dev — total 22**
 
 ---
 
@@ -22,79 +24,118 @@ A **Next.js 16** (React 19) full-stack ToDo application with authentication, cal
 
 ### Directory Structure
 ```
-app/                    # Next.js App Router
-  layout.tsx            # Root layout
-  page.tsx              # Home page (todo list)
-  login/                # Authentication pages
-  calendar/             # Calendar view route
-  api/                  # API routes
-lib/                    # Business logic (no ORM models used — raw SQL throughout)
-  db.ts                 # Database layer: raw SQL queries + table DDL + facade pattern
-  todo-core.ts          # Core todo CRUD logic
-  tag-core.ts           # Tag management
-  subtask-core.ts       # Subtask management
-  template-core.ts      # Template system
-  recurrence.ts         # Recurrence calculations
-  calendar.ts           # Calendar view logic
-  notifications.ts      # Notification logic
-  auth-*.ts             # Authentication: core, webauthn, challenges, server
-  import-core.ts        # Import/export
-  export-core.ts        # Export logic
-  filters.ts            # Search/filter helpers
-  holiday modules       # Singapore holidays, timezone
-  hooks/                # React hooks (lib-level)
-tests/                  # 11 Playwright E2E tests matching PRP feature IDs
-PRPs/                   # 11 Product Requirements Profiles
-mcp-configs/            # MCP server configuration
-scripts/                # CLI scripts (seed-holidays.ts)
+app/                              # Next.js App Router
+  layout.tsx                      # Root layout
+  page.tsx                        # Home page (todo list)
+  error.tsx                       # Error boundary
+  login/
+    page.tsx                      # Login/register UI
+  calendar/
+    page.tsx                      # Calendar view
+  api/                            # API routes (15+ route files)
+    auth/                         # Auth endpoints
+      login-options/route.ts
+      login-verify/route.ts
+      logout/route.ts
+      me/route.ts
+      register-options/route.ts
+      register-verify/route.ts
+    holidays/route.ts
+    notifications/check/route.ts
+    subtasks/[id]/route.ts
+    tags/
+      route.ts
+      [id]/route.ts
+    templates/
+      route.ts
+      [id]/route.ts
+      [id]/use/route.ts
+    todos/
+      route.ts
+      [id]/route.ts
+      [id]/subtasks/route.ts
+      [id]/tags/route.ts
+      export/route.ts
+      import/route.ts
+
+lib/                              # Business logic (20 .ts files + hooks/)
+  db.ts                           # Database layer: raw SQL, DDL, facades (1201 lines)
+  todo-core.ts                    # Core todo CRUD logic
+  tag-core.ts                     # Tag management
+  subtask-core.ts                 # Subtask management
+  template-core.ts                # Template system
+  recurrence.ts                   # Recurrence calculations
+  calendar.ts                     # Calendar view logic
+  notifications.ts                # Notification logic
+  auth.ts                         # Auth helpers
+  auth-challenges.ts              # Auth challenge flows
+  auth-core.ts                    # Auth core
+  auth-server.ts                  # Auth server logic
+  auth-webauthn.ts                # WebAuthn implementation
+  import-core.ts                  # Import logic
+  export-core.ts                  # Export logic
+  filters.ts                      # Search/filter helpers
+  singapore-holidays.ts           # Singapore holidays data
+  timezone.ts                     # Timezone utilities
+  todo-types.ts                   # TypeScript type definitions
+  hooks/                          # React hooks (lib-level)
+
+tests/                            # 11 Playwright E2E + 15 unit tests
+  unit/                           # 15 test files (see below)
+  01-todo-crud-operations.spec.ts
+  02-priority-system.spec.ts
+  03-recurring-todos.spec.ts
+  04-reminders-notifications.spec.ts
+  05-subtasks-progress.spec.ts
+  06-tag-system.spec.ts
+  07-template-system.spec.ts
+  08-search-filtering.spec.ts
+  09-export-import.spec.ts
+  10-calendar-view.spec.ts
+  11-authentication-webauthn.spec.ts
+  smoke.spec.ts
+  global-setup.ts
+  helpers.ts
+
+PRPs/                             # 11 Product Requirements Profiles
+mcp-configs/                      # MCP server configuration
+scripts/                          # CLI scripts
+  migrate.ts
+  seed-holidays.ts
+types/                            # Type declarations
+  better-sqlite3.d.ts
 ```
 
 ### Database Architecture — **CRITICAL ISSUE**
 
-The codebase has **two incompatible database layers**:
-
-#### Layer 1: Raw SQL (Production code — `lib/db.ts`)
+**Layer — Raw SQL (production, `lib/db.ts`)**
 - ALL queries use raw `sql\`...\`` statements via `db.execute()`
-- Tables are created on first access via `createTables()` (DDL embedded)
-- Facade pattern wraps raw queries: `TodoFacade`, `TagFacade`, `SubtaskFacade`, etc.
-- No type-safe column references anywhere — everything is string-based
+- Tables created on first access via `createTables()` DDL (lines 80–186)
+- Facade pattern wraps raw SQL: `TodoFacade`, `TagFacade`, etc. (lines 885–1201)
+- No type-safe column references — everything is string-based
+- **Note:** The former Drizzle schema (`lib/drizzle-schema.ts`) was deleted on 2026-09-08 as confirmed dead code (0 imports across the codebase). DDL in `createTables()` is now the single source of truth.
 
-#### Layer 2: Drizzle Schema Definitions (`lib/drizzle-schema.ts`)
-- Uses `pgTable()` to define schema for 8 tables
-- **Never imported by any application code** — dead code
-- Incomplete — missing `notifications` table that exists in the raw SQL DDL
-
-### Key Mismatch Details
-
-| Field | Raw SQL (db.ts) | Drizzle Schema | Status |
-|-------|-----------------|---------------|--------|
-| `due_date` | `DATE` type | `varchar(10)` | TYPE MISMATCH |
-| `title` | `VARCHAR(255)` | `text()` | DIFFERENT TYPES |
-| `notes` | `TEXT` | `text()` | OK |
-| `transports` | `TEXT` | `text()` | OK |
-| `counter` | `BIGINT` | `integer()` | PRECISION MISMATCH |
-| `notifications` table | EXISTS (DDL line 148) | **ABSENT** | MISSING FROM SCHEMA |
-
-### Database Schema (from raw SQL DDL in `db.ts`)
-
-**8 tables:**
-1. **todos** — core todo items (id, user_id, title, notes, due_date, completed, priority, is_recurring, recurrence_pattern, reminder_minutes, created_at, updated_at, completed_at)
-2. **tags** — user tags (id, user_id, name, color, created_at, updated_at)
-3. **todo_tags** — junction table for todo-tag many-to-many
-4. **subtasks** — subtask items (id, todo_id, title, completed, position, timestamps)
-5. **templates** — todo templates (id, user_id, name, description, category, title_template, priority, recurrence fields, subtasks_json, timestamps)
-6. **holidays** — Singapore public holidays (date, name, created_at)
-7. **notifications** — reminder notifications (id SERIAL, todo_id, notification_type, scheduled_for, status, timestamps)
-8. **users** — auth users (id, username UNIQUE, password_hash, timestamps)
-9. **authenticators** — WebAuthn credentials (credential_id PK, user_id FK, public_key, counter, transports, timestamps)
-
-### API Structure
+### API Structure (confirmed via filesystem scan)
 
 ```
-app/login/          → Login/register pages
-app/calendar/       → Calendar view page
-app/api/            → API routes (unspecified in tree)
-middleware.ts       → Route protection middleware
+app/login/page.tsx          → Login/register UI
+app/calendar/page.tsx       → Calendar view
+app/api/auth/*              → 6 auth endpoints (login-options, login-verify, logout, me, register-options, register-verify)
+app/api/holidays/route.ts   → Holiday CRUD
+app/api/notifications/check → Notification check
+app/api/subtasks/[id]       → Subtask update/delete
+app/api/tags/               → Tag collection
+app/api/tags/[id]           → Tag item
+app/api/templates/          → Template collection
+app/api/templates/[id]      → Template item
+app/api/templates/[id]/use  → Apply template to create todo
+app/api/todos/              → Todo collection (GET, POST)
+app/api/todos/[id]          → Todo item (GET, PATCH, DELETE)
+app/api/todos/[id]/subtasks → Subtask sub-collection
+app/api/todos/[id]/tags     → Tag sub-collection
+app/api/todos/export        → Export todos as JSON
+app/api/todos/import        → Import todos from JSON
+Total: 15+ route files across 7 API modules
 ```
 
 ---
@@ -103,53 +144,72 @@ middleware.ts       → Route protection middleware
 
 ### Recurrence System (`lib/recurrence.ts`)
 - Supports: daily, weekly, monthly, yearly
-- `calculateNextOccurrence()` in `db.ts` line 881-898 — basic date math
-- `expandRecurrence()` — finds recurring todos within a date range
+- `calculateNextOccurrence()` at `db.ts` line 860–877 — basic date math (no timezone handling)
+- `expandRecurrence()` at `db.ts` line 742–756 — queries DB for recurring todos within a date range
 
 ### Tag System (`lib/tag-core.ts`, `lib/db.ts`)
 - M:N relationship via `todo_tags` junction table
-- Tags have name + color
+- Tags have name (VARCHAR 100) + color (VARCHAR 7)
 - User-scoped (`user_id`)
 
 ### Subtask System (`lib/subtask-core.ts`, `lib/db.ts`)
 - Position-based ordering
-- Bulk position update support
+- Bulk position update support (`bulkUpdateSubtaskPositions`)
 - Cascade delete on parent todo
 
 ### Template System (`lib/template-core.ts`, `lib/db.ts`)
 - Reusable todo structures with subtasks_json stored as TEXT (JSON string)
 - Supports recurrence, reminders, and priority in templates
 
-### Authentication (`lib/auth-*.ts`)
+### Authentication (`lib/auth-*.ts` — 4 auth modules)
 - Username/password + WebAuthn (passkeys)
 - JWT tokens via `jose`
-- Users stored in `users` table with password_hash
+- Users stored in `users` table with `password_hash`
 - Authenticators in `authenticators` table linked to users
+- Challenge flows in `auth-challenges.ts`
 
 ### Calendar View (`lib/calendar.ts`)
-- Month view generation in `buildCalendarMonth()` — hardcoded date math
+- Month view generation in `buildCalendarMonth()` at `db.ts` line 546–598 — hardcoded date math, ignores DB data for events
 - Singapore holidays integration via `singapore-holidays.ts`
 
 ---
 
 ## Testing Coverage
 
+### Unit Tests (15 files in tests/unit/)
 | Test File | Feature | Status |
 |-----------|---------|--------|
-| `01-todo-crud-operations.spec.ts` | Create/Read/Update/Delete todos | Planned |
-| `02-priority-system.spec.ts` | Priority levels (high/medium/low) | Planned |
-| `03-recurring-todos.spec.ts` | Recurrence patterns | Planned |
-| `04-reminders-notifications.spec.ts` | Reminder system | Planned |
-| `05-subtasks-progress.spec.ts` | Subtask progress tracking | Planned |
-| `06-tag-system.spec.ts` | Tag management | Planned |
-| `07-template-system.spec.ts` | Todo templates | Planned |
-| `08-search-filtering.spec.ts` | Search + filters | Planned |
-| `09-export-import.spec.ts` | Data portability | Planned |
-| `10-calendar-view.spec.ts` | Calendar display | Planned |
-| `11-authentication-webauthn.spec.ts` | WebAuthn auth | Planned |
-| `smoke.spec.ts` | Health checks | Planned |
+| `auth-webauthn.test.ts` | WebAuthn auth | EXISTS |
+| `auth.test.ts` | Auth core | EXISTS |
+| `calendar.test.ts` | Calendar logic | EXISTS |
+| `db.test.ts` | Database layer | EXISTS |
+| `export-core.test.ts` | Export logic | EXISTS |
+| `filters.test.ts` | Filter helpers | EXISTS |
+| `import-core.test.ts` | Import logic | EXISTS |
+| `notifications.test.ts` | Notifications | EXISTS |
+| `phase4-db.test.ts` | Phase 4 DB tests | EXISTS |
+| `recurrence.test.ts` | Recurrence | EXISTS |
+| `subtask-core.test.ts` | Subtask core | EXISTS |
+| `tag-db.test.ts` | Tag DB operations | EXISTS |
+| `template-core.test.ts` | Template core | EXISTS |
+| `timezone.test.ts` | Timezone utilities | EXISTS |
+| `todo-core.test.ts` | Todo core | EXISTS |
 
-**Gap:** No unit tests (tests/unit/ dir exists but empty). Only Playwright E2E tests.
+### E2E Tests (12 Playwright spec files)
+| Test File | Feature | Status |
+|-----------|---------|--------|
+| `01-todo-crud-operations.spec.ts` | Create/Read/Update/Delete todos | Exists |
+| `02-priority-system.spec.ts` | Priority levels (high/medium/low) | Exists |
+| `03-recurring-todos.spec.ts` | Recurrence patterns | Exists |
+| `04-reminders-notifications.spec.ts` | Reminder system | Exists |
+| `05-subtasks-progress.spec.ts` | Subtask progress tracking | Exists |
+| `06-tag-system.spec.ts` | Tag management | Exists |
+| `07-template-system.spec.ts` | Todo templates | Exists |
+| `08-search-filtering.spec.ts` | Search + filters | Exists |
+| `09-export-import.spec.ts` | Data portability | Exists |
+| `10-calendar-view.spec.ts` | Calendar display | Exists |
+| `11-authentication-webauthn.spec.ts` | WebAuthn auth | Exists |
+| `smoke.spec.ts` | Health checks | Exists |
 
 ---
 
@@ -161,17 +221,12 @@ middleware.ts       → Route protection middleware
 
 ## Critical Issues Summary
 
-### 1. **Dead Drizzle Schema** (HIGH PRIORITY)
-`lib/drizzle-schema.ts` defines 8 tables but:
-- Is never imported anywhere in the app
-- Has type mismatches with actual DDL (due_date, title, counter columns)
-- Missing `notifications` table
-
-**Impact:** If you delete it, nothing breaks. The app runs entirely on raw SQL.
+### 1. **Dead Drizzle Schema** ✅ RESOLVED (deleted 2026-09-08)
+`lib/drizzle-schema.ts` has been removed. It was never imported anywhere in the app and had numerous type mismatches with actual DDL. The app runs entirely on raw SQL — DDL in `createTables()` is now the single source of truth.
 
 ### 2. **No Migration System** (HIGH PRIORITY)
-- No `drizzle.config.*`, no `migrations/` directory
-- Table creation is hardcoded DDL in `createTables()` function
+- No `drizzle.config.*`, no `migrations/` directory, no `drizzle-kit` in dependencies
+- Table creation is hardcoded DDL in `createTables()` function (lines 80–186 of db.ts)
 - New environments rely on this runtime DDL — prone to drift between dev/staging/prod
 
 **Impact:** Manual schema changes must be coordinated across all instances. No rollback capability.
@@ -179,15 +234,17 @@ middleware.ts       → Route protection middleware
 ### 3. **No Type-Safe Queries** (MEDIUM PRIORITY)
 All queries use string column names — typos won't be caught at compile time:
 ```typescript
-// db.ts line 82 - hardcoded strings, no compiler safety
-await db.execute(sql`SELECT * FROM todos WHERE user_id = ${userId}`)
+// db.ts line 196 - hardcoded strings, no compiler safety
+await db.execute(sql`
+  INSERT INTO todos (id, user_id, title, notes, due_date, ...)
+  VALUES (...)`)
 ```
 
 ### 4. **pg Pool SSL for Docker/Internal Connections** (RESOLVED)
 `lib/db.ts` line 55 — `ssl: false` is set for internal Docker/Railway/Coolify connections where the pool connects to PostgreSQL via localhost or internal network. If deploying with external PostgreSQL over public internet, re-enable SSL with `rejectUnauthorized: true`.
 
 ### 5. **Facade Pattern Overhead** (LOW PRIORITY)
-`db.ts` lines 906-1221 define facade interfaces (`TodoFacade`, `TagFacade`, etc.) that are just thin wrappers around the raw SQL functions. Adds indirection without adding value.
+`db.ts` lines 885–1201 define facade interfaces and factory functions (`TodoFacade`, `TagFacade`, etc.) that are thin wrappers around the raw SQL functions. Adds indirection without adding value since they're not used by any application code outside db.ts.
 
 ---
 
@@ -195,12 +252,12 @@ await db.execute(sql`SELECT * FROM todos WHERE user_id = ${userId}`)
 
 ### Immediate (Fix DB layer consistency):
 1. **Option A: Fully adopt Drizzle ORM** — Migrate all raw SQL queries to Drizzle's query builder, add `drizzle-kit` migrations
-2. **Option B: Drop dead schema** — Delete `lib/drizzle-schema.ts`, keep raw SQL, but ensure DDL is the single source of truth
+2. ✅ **Option B complete** — `lib/drizzle-schema.ts` deleted; DDL in `createTables()` is the single source of truth.
 
 ### Short-term:
-3. Add Drizzle/Kysely migrations from existing DDL
+3. Add proper migration system (drizzle-kit or similar)
 4. Fix SSL config for production (`rejectUnauthorized: true`)
-5. Add unit tests (currently 0 coverage)
+5. Review existing unit tests for coverage gaps and test quality
 
 ### Long-term:
 6. Consider type generation (e.g., `drizzle-kit generate` → auto-generated TS types for all tables)
@@ -209,8 +266,9 @@ await db.execute(sql`SELECT * FROM todos WHERE user_id = ${userId}`)
 ---
 
 ## Files Count
-- **lib/**: 18 modules (core business logic)
-- **tests/**: 12 spec files (11 feature + smoke)
+- **lib/**: 19 TypeScript modules + hooks/ subdirectory
+- **tests/unit/**: 15 unit test files
+- **tests/**: 12 Playwright E2E spec files (11 feature + smoke)
 - **PRPs/**: 11 requirement docs
-- **App routes**: login/, calendar/, api/
-- **Total deps**: ~14 (6 production, 8 dev)
+- **API routes**: 15+ route files across 7 API modules
+- **Total deps**: 8 production + 14 dev = 22 total
