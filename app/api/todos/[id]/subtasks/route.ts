@@ -21,7 +21,7 @@ export async function POST(
   }
 
   const { id } = await params;
-  const todo = getTodoDB().findByIdForUser(id, session.userId);
+  const todo = await getTodoDB().findByIdForUser(id, session.userId);
   if (!todo) {
     return NextResponse.json({ error: 'Todo not found' }, { status: 404 });
   }

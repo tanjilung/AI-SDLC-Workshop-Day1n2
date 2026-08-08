@@ -106,13 +106,15 @@ export async function PUT(
           : body.last_notification_sent === null
             ? null
             : String(body.last_notification_sent),
-      tag_ids: validateTagIds(body.tag_ids, true),
       subtasks:
         body.subtasks === undefined
           ? undefined
           : normalizeTemplateSubtasks(body.subtasks).map((subtask) => ({
-              ...subtask,
-              completed: false
+              id: crypto.randomUUID(),
+              todo_id: id,
+              completed: false,
+              title: subtask.title,
+              position: subtask.position
             }))
     });
 
@@ -121,21 +123,19 @@ export async function PUT(
     }
 
     if (completed === true && !existing.completed && existing.is_recurring && existing.recurrence_pattern && existing.due_date) {
+      const newDueDate = calculateNextRecurringDueDate(existing.due_date, existing.recurrence_pattern);
       await getTodoDB().create({
         user_id: session.userId,
         title: existing.title,
         notes: existing.notes,
-        due_date: calculateNextRecurringDueDate(existing.due_date, existing.recurrence_pattern),
+        due_date: newDueDate,
+        completed: false,
         priority: existing.priority,
         is_recurring: existing.is_recurring,
         recurrence_pattern: existing.recurrence_pattern,
         reminder_minutes: existing.reminder_minutes,
-        tag_ids: (existing.tags ?? []).map((tag) => tag.id),
-        subtasks: (existing.subtasks ?? []).map((subtask) => ({
-          title: subtask.title,
-          completed: false,
-          position: subtask.position
-        }))
+        last_notification_sent: null,
+        completed_at: null,
       });
     }
 

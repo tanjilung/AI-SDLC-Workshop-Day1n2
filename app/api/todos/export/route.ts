@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   }
 
   const format = request.nextUrl.searchParams.get('format') ?? 'json';
-  const todos = getTodoDB().findAllWithRelations(session.userId);
+  const todos = await getTodoDB().findAllWithRelations(session.userId);
   const exportItems = todos.map((todo) => toExportItem(todo));
   const dateString = formatSingaporeDate(getSingaporeNow());
 
