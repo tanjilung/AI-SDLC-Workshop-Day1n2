@@ -1047,12 +1047,14 @@ function createTagFacade(): TagFacade {
       return getUserTags(db, userId);
     },
     async findById(id, userId) {
-          const rows = await db.select().from(schema.tags).where(eq(schema.tags.id, id)).where(eq(schema.tags.userId, userId)).limit(1);
+          const q = db.select().from(schema.tags) as any;
+          const rows = await q.where(eq(schema.tags.id, id)).where(eq(schema.tags.userId, userId)).limit(1);
           if (!rows.length) return null;
           return mapTagRow(rows[0]);
         },
         async update(id, userId, updates) {
-          const existing = await db.select().from(schema.tags).where(eq(schema.tags.id, id)).where(eq(schema.tags.userId, userId)).limit(1);
+          const q2 = db.select().from(schema.tags) as any;
+          const existing = await q2.where(eq(schema.tags.id, id)).where(eq(schema.tags.userId, userId)).limit(1);
           if (!existing.length) throw new Error('Tag not found');
           const setObj: any = {};
           if (updates.name !== undefined) setObj.name = updates.name;
@@ -1063,14 +1065,16 @@ function createTagFacade(): TagFacade {
           return mapTagRow(rows[0]);
         },
         async delete(id, userId) {
-          const existing = await db.select().from(schema.tags).where(eq(schema.tags.id, id)).where(eq(schema.tags.userId, userId)).limit(1);
+          const q3 = db.select().from(schema.tags) as any;
+          const existing = await q3.where(eq(schema.tags.id, id)).where(eq(schema.tags.userId, userId)).limit(1);
           if (!existing.length) return false;
           await db.delete(schema.tags).where(eq(schema.tags.id, id));
           return true;
         },
 
     async attachToTodo(todoId, tagId, userId) {
-          const tag = await db.select().from(schema.tags).where(eq(schema.tags.id, tagId)).where(eq(schema.tags.userId, userId)).limit(1);
+          const q4 = db.select().from(schema.tags) as any;
+          const tag = await q4.where(eq(schema.tags.id, tagId)).where(eq(schema.tags.userId, userId)).limit(1);
           if (!tag.length) return false;
           // Use Drizzle insert with onConflictDoNothing when available; fallback to raw SQL if not
           try {
@@ -1083,9 +1087,10 @@ function createTagFacade(): TagFacade {
           return true;
         },
         async detachFromTodo(todoId, tagId, userId) {
-          const tag = await db.select().from(schema.tags).where(eq(schema.tags.id, tagId)).where(eq(schema.tags.userId, userId)).limit(1);
+          const q5 = db.select().from(schema.tags) as any;
+          const tag = await q5.where(eq(schema.tags.id, tagId)).where(eq(schema.tags.userId, userId)).limit(1);
           if (!tag.length) return false;
-          await db.delete(schema.todoTags).where(eq(schema.todoTags.todoId, todoId)).where(eq(schema.todoTags.tagId, tagId));
+          await db.execute(sql`DELETE FROM todo_tags WHERE todo_id = ${todoId} AND tag_id = ${tagId}`);
           return true;
         },
 
