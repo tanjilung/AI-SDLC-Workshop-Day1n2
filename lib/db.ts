@@ -660,7 +660,7 @@ export async function getUserByUsername(
 
 export async function createUser(
   db: ReturnType<typeof drizzle>,
-  userData: Omit<User, 'created_at' | 'updated_at'> & { password_hash?: string }
+  userData: Omit<User, 'id' | 'created_at' | 'updated_at'> & { password_hash?: string }
 ): Promise<User> {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();

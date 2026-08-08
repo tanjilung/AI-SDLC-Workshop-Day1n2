@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { sql } from 'drizzle-orm';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -18,12 +19,15 @@ import {
   type PendingRegistrationStore
 } from './auth-challenges';
 import {
-  getDatabase,
-  getAuthenticatorDB,
-  getUserDB,
-  type DatabaseInstance,
-  type Authenticator,
-  type User
+  getDb,
+  getUserByUsername,
+  getUserByCredentialId,
+  createUser,
+  createAuthenticator,
+  getAuthenticatorsByUserId,
+  deleteAuthenticator,
+  type User,
+  type Authenticator
 } from './db';
 
 export interface WebAuthnConfig {
@@ -42,23 +46,6 @@ export interface AuthenticationResponseBody {
   response: AuthenticationResponseJSON;
 }
 
-interface CreateRegistrationOptionsDeps {
-  challengeStore?: AuthChallengeStore;
-  userDB?: ReturnType<typeof getUserDB>;
-  registrationStore?: PendingRegistrationStore;
-  currentSession?: SessionPayload | null;
-  authenticatorStore?: ReturnType<typeof getAuthenticatorDB>;
-}
-
-interface VerifyRegistrationDeps {
-  challengeStore?: AuthChallengeStore;
-  userDB?: ReturnType<typeof getUserDB>;
-  authenticatorStore?: ReturnType<typeof getAuthenticatorDB>;
-  registrationStore?: PendingRegistrationStore;
-  currentSession?: SessionPayload | null;
-  db?: DatabaseInstance;
-}
-
 function normalizeUsername(username: string): string {
   return username.trim().toLowerCase();
 }
@@ -68,17 +55,9 @@ function requireConfig(config: Partial<WebAuthnConfig>): WebAuthnConfig {
   const rpName = config.rpName?.trim();
   const rpOrigin = config.rpOrigin?.trim();
 
-  if (!rpId) {
-    throw new Error('RP_ID is required');
-  }
-
-  if (!rpName) {
-    throw new Error('RP_NAME is required');
-  }
-
-  if (!rpOrigin) {
-    throw new Error('RP_ORIGIN is required');
-  }
+  if (!rpId) throw new Error('RP_ID is required');
+  if (!rpName) throw new Error('RP_NAME is required');
+  if (!rpOrigin) throw new Error('RP_ORIGIN is required');
 
   return { rpId, rpName, rpOrigin };
 }
@@ -87,75 +66,65 @@ function getChallengeKey(username: string, mode: 'register' | 'login'): string {
   return `${mode}:${normalizeUsername(username)}`;
 }
 
-function getAuthenticatorPublicKey(authenticator: Authenticator): ReturnType<Uint8Array['slice']> {
-  return isoBase64URL.toBuffer(authenticator.public_key).slice();
-}
-
-export function getAuthenticatorForUserCredential(
-  userId: string,
-  credentialId: string,
-  authenticatorStore = getAuthenticatorDB()
-): Authenticator | null {
-  const authenticator = authenticatorStore.findByCredentialId(credentialId);
-
-  if (!authenticator || authenticator.user_id !== userId) {
-    return null;
-  }
-
-  return authenticator;
-}
-
 export async function createRegistrationOptions(
   username: string,
   config: Partial<WebAuthnConfig> = {},
-  deps: CreateRegistrationOptionsDeps = {}
+  deps: {
+    challengeStore?: AuthChallengeStore;
+    currentSession?: SessionPayload | null;
+    pendingStore?: PendingRegistrationStore;
+  } = {}
 ) {
   const {
     challengeStore = authChallengeStore,
-    userDB = getUserDB(),
-    registrationStore = pendingRegistrationStore,
     currentSession,
-    authenticatorStore
+    pendingStore = pendingRegistrationStore
   } = deps;
+
   const normalizedUsername = normalizeUsername(username);
-  const existingUser = userDB.findByUsername(normalizedUsername);
+
+  // Check if username already exists
+  const existingUser = await getUserByUsername(getDb(), normalizedUsername);
 
   if (existingUser) {
     if (!currentSession) {
-      return { error: 'Username already taken' as const, status: 409 };
+      return { error: 'Username already taken' as const, status: 409 as const };
     }
-
     if (existingUser.id !== currentSession.userId) {
-      return { error: 'Cannot register a passkey for another user' as const, status: 403 };
+      return { error: 'Cannot register a passkey for another user' as const, status: 403 as const };
     }
-
     if (!hasRecentReauthentication(currentSession)) {
-      return { error: 'Recent authentication required to add another passkey' as const, status: 401 };
+      return { error: 'Recent authentication required to add another passkey' as const, status: 401 as const };
     }
   }
 
-  const existingPendingRegistration = registrationStore.peek(normalizedUsername);
-  if (existingPendingRegistration) {
-    return { error: 'Registration already in progress' as const, status: 409 };
+  // Check for pending registration
+  const existingPending = pendingStore.peek(normalizedUsername);
+  if (existingPending) {
+    return { error: 'Registration already in progress' as const, status: 409 as const };
   }
 
-  const reservation = registrationStore.reserve(
+  const reservation = pendingStore.reserve(
     normalizedUsername,
     existingUser?.id ?? randomUUID()
   );
   if (!reservation) {
-    return { error: 'Registration already in progress' as const, status: 409 };
+    return { error: 'Registration already in progress' as const, status: 409 as const };
   }
 
   const webAuthnConfig = requireConfig(config);
+
   try {
-    const excludeCredentials = existingUser
-      ? (authenticatorStore ?? getAuthenticatorDB()).listByUserId(existingUser.id).map((authenticator) => ({
-          id: authenticator.credential_id,
-          type: 'public-key' as const,
-          transports: authenticator.transports ? (JSON.parse(authenticator.transports) as AuthenticatorTransport[]) : undefined
-        }))
-      : [];
+    // Get existing authenticators to exclude from registration
+    let excludeCredentials: Array<{ id: string; type: string; transports?: AuthenticatorTransport[] }> = [];
+    if (existingUser) {
+      const existingAuthenticators = await getAuthenticatorsByUserId(getDb(), existingUser.id);
+      excludeCredentials = existingAuthenticators.map((a) => ({
+        id: a.credential_id,
+        type: 'public-key',
+        transports: a.transports ? (JSON.parse(a.transports) as AuthenticatorTransport[]) : undefined
+      }));
+    }
 
     const options = await generateRegistrationOptions({
       rpName: webAuthnConfig.rpName,
@@ -169,105 +138,101 @@ export async function createRegistrationOptions(
       }
     });
 
-    if (!registrationStore.attachChallenge(normalizedUsername, reservation.attemptId, options.challenge)) {
-      return { error: 'Registration already in progress' as const, status: 409 };
+    if (!pendingStore.attachChallenge(normalizedUsername, reservation.attemptId, options.challenge)) {
+      return { error: 'Registration already in progress' as const, status: 409 as const };
     }
 
     challengeStore.save(getChallengeKey(normalizedUsername, 'register'), options.challenge);
 
-    return { options, status: 200 };
-  } catch (error) {
-    registrationStore.release(normalizedUsername, reservation.attemptId);
-    throw error;
+    return { options, status: 200 as const };
+  } catch (_error) {
+    pendingStore.release(normalizedUsername, reservation.attemptId);
+    throw _error;
   }
 }
 
 export async function createLoginOptions(
   username: string,
   config: Partial<WebAuthnConfig> = {},
-  challengeStore: AuthChallengeStore = authChallengeStore,
-  userDB = getUserDB(),
-  authenticatorStore = getAuthenticatorDB()
+  challengeStore: AuthChallengeStore = authChallengeStore
 ) {
   const normalizedUsername = normalizeUsername(username);
-  const user = userDB.findByUsername(normalizedUsername);
+  const user = await getUserByUsername(getDb(), normalizedUsername);
 
   if (!user) {
-    return { error: 'User not found' as const, status: 404 };
+    return { error: 'User not found' as const, status: 404 as const };
   }
 
   const webAuthnConfig = requireConfig(config);
-  const authenticators = authenticatorStore.listByUserId(user.id);
+  const authenticators = await getAuthenticatorsByUserId(getDb(), user.id);
 
   const options = await generateAuthenticationOptions({
     rpID: webAuthnConfig.rpId,
-    allowCredentials: authenticators.map((authenticator) => ({
-      id: authenticator.credential_id,
+    allowCredentials: authenticators.map((a) => ({
+      id: a.credential_id,
       type: 'public-key',
-      transports: authenticator.transports ? (JSON.parse(authenticator.transports) as AuthenticatorTransport[]) : undefined
+      transports: a.transports ? (JSON.parse(a.transports) as AuthenticatorTransport[]) : undefined
     })),
     userVerification: 'preferred'
   });
 
   challengeStore.save(getChallengeKey(normalizedUsername, 'login'), options.challenge);
 
-  return { options, status: 200 };
+  return { options, status: 200 as const };
 }
 
 export async function verifyRegistration(
   body: RegistrationResponseBody,
   config: Partial<WebAuthnConfig> = {},
-  deps: VerifyRegistrationDeps = {}
+  deps: {
+    challengeStore?: AuthChallengeStore;
+    pendingStore?: PendingRegistrationStore;
+    currentSession?: SessionPayload | null;
+  } = {}
 ): Promise<{ user?: User; verified: boolean; error?: string }> {
   const {
     challengeStore = authChallengeStore,
-    userDB = getUserDB(),
-    authenticatorStore = getAuthenticatorDB(),
-    registrationStore = pendingRegistrationStore,
-    currentSession,
-    db
+    pendingStore = pendingRegistrationStore,
+    currentSession
   } = deps;
+
   const normalizedUsername = normalizeUsername(body.username);
-  const existingUser = userDB.findByUsername(normalizedUsername);
+  const existingUser = await getUserByUsername(getDb(), normalizedUsername);
 
   if (existingUser) {
     if (!currentSession || currentSession.userId !== existingUser.id) {
       return { verified: false, error: 'Authentication required to add another passkey' };
     }
-
     if (!hasRecentReauthentication(currentSession)) {
       return { verified: false, error: 'Recent authentication required to add another passkey' };
     }
   }
 
   const expectedChallenge = challengeStore.consume(getChallengeKey(normalizedUsername, 'register'));
-
   if (!expectedChallenge) {
     return { verified: false, error: 'Registration challenge expired' };
   }
 
   const webAuthnConfig = requireConfig(config);
-  const pendingRegistration = registrationStore.consume(normalizedUsername);
+  const pendingRegistration = pendingStore.consume(normalizedUsername);
 
   if (!pendingRegistration || pendingRegistration.challenge !== expectedChallenge) {
     return { verified: false, error: 'Registration expired' };
   }
 
-  if (existingUser) {
-    if (pendingRegistration.reservedUserId !== existingUser.id) {
-      return { verified: false, error: 'Registration expired' };
-    }
+  if (existingUser && pendingRegistration.reservedUserId !== existingUser.id) {
+    return { verified: false, error: 'Registration expired' };
   }
 
   let verification: VerifiedRegistrationResponse;
   try {
-    verification = (await verifyRegistrationResponse({
+    verification = await verifyRegistrationResponse({
       response: body.response,
       expectedChallenge,
       expectedOrigin: webAuthnConfig.rpOrigin,
       expectedRPID: webAuthnConfig.rpId,
       requireUserVerification: false
-    })) as VerifiedRegistrationResponse;
+    });
   } catch {
     return { verified: false, error: 'Verification failed' };
   }
@@ -276,139 +241,91 @@ export async function verifyRegistration(
     return { verified: false, error: 'Verification failed' };
   }
 
+  const db = getDb();
   try {
-    const credentialInput = {
-      credentialId: verification.registrationInfo.credential.id,
-      publicKey: verification.registrationInfo.credential.publicKey,
-      counter: verification.registrationInfo.credential.counter ?? 0
-    };
-    const resolvedDb = db ?? getDatabase();
-    const user = existingUser
-      ? persistRegistrationAuthenticator(existingUser, credentialInput, authenticatorStore, resolvedDb)
-      : persistRegistrationAccount(
-          {
-            username: normalizedUsername,
-            reservedUserId: pendingRegistration.reservedUserId,
-            ...credentialInput
-          },
-          userDB,
-          authenticatorStore,
-          resolvedDb
-        );
+    const { id: credId, publicKey, counter } = verification.registrationInfo.credential;
 
-    return { verified: true, user };
+    if (existingUser) {
+      // Adding a new passkey to an existing user
+      await createAuthenticator(db, {
+        credential_id: credId,
+        user_id: existingUser.id,
+        public_key: isoBase64URL.fromBuffer(publicKey.slice()),
+        counter: counter ?? 0,
+        transports: null
+      });
+    } else {
+      // Creating a new account
+      await createUser(db, { username: normalizedUsername, password_hash: '', id: pendingRegistration.reservedUserId } as any);
+      const newUser = await getUserByUsername(db, normalizedUsername);
+      if (!newUser) throw new Error('Failed to create user');
+      await createAuthenticator(db, {
+        credential_id: credId,
+        user_id: newUser.id,
+        public_key: isoBase64URL.fromBuffer(publicKey.slice()),
+        counter: counter ?? 0,
+        transports: null
+      });
+    }
+
+    const user = await getUserByUsername(db, normalizedUsername);
+    return { verified: true, user: user! };
   } catch {
     return { verified: false, error: 'Registration failed' };
   }
 }
 
-export function persistRegistrationAccount(
-  input: {
-    username: string;
-    reservedUserId: string;
-    credentialId: string;
-    publicKey: ReturnType<Uint8Array['slice']>;
-    counter: number;
-  },
-  userDB = getUserDB(),
-  authenticatorStore = getAuthenticatorDB(),
-  db: DatabaseInstance = getDatabase()
-): User {
-  const createAccount = db.transaction(() => {
-    const user = userDB.create({
-      id: input.reservedUserId,
-      username: input.username
-    });
-
-    authenticatorStore.create({
-      credentialId: input.credentialId,
-      userId: user.id,
-      publicKey: isoBase64URL.fromBuffer(input.publicKey),
-      counter: input.counter,
-      transports: null
-    });
-
-    return user;
-  });
-
-  return createAccount();
-}
-
-export function persistRegistrationAuthenticator(
-  user: User,
-  input: {
-    credentialId: string;
-    publicKey: ReturnType<Uint8Array['slice']>;
-    counter: number;
-  },
-  authenticatorStore = getAuthenticatorDB(),
-  db: DatabaseInstance = getDatabase()
-): User {
-  const attachAuthenticator = db.transaction(() => {
-    authenticatorStore.create({
-      credentialId: input.credentialId,
-      userId: user.id,
-      publicKey: isoBase64URL.fromBuffer(input.publicKey),
-      counter: input.counter,
-      transports: null
-    });
-
-    return user;
-  });
-
-  return attachAuthenticator();
-}
-
 export async function verifyLogin(
   body: AuthenticationResponseBody,
   config: Partial<WebAuthnConfig> = {},
-  challengeStore: AuthChallengeStore = authChallengeStore,
-  userDB = getUserDB(),
-  authenticatorStore = getAuthenticatorDB()
-): Promise<{ user?: User; authenticator?: Authenticator; verified: boolean; error?: string; newCounter?: number }> {
+  challengeStore: AuthChallengeStore = authChallengeStore
+): Promise<{ user?: User; authenticator?: Authenticator; verified: boolean; error?: string }> {
   const normalizedUsername = normalizeUsername(body.username);
-  const expectedChallenge = challengeStore.consume(getChallengeKey(normalizedUsername, 'login'));
 
+  const expectedChallenge = challengeStore.consume(getChallengeKey(normalizedUsername, 'login'));
   if (!expectedChallenge) {
     return { verified: false, error: 'Login challenge expired' };
   }
 
-  const user = userDB.findByUsername(normalizedUsername);
+  const responseId = String(body.response.id ?? '');
+
+  const user = await getUserByCredentialId(getDb(), responseId);
   if (!user) {
     return { verified: false, error: 'User not found' };
   }
 
-  const responseId = String(body.response.id ?? '');
-  const authenticator = getAuthenticatorForUserCredential(user.id, responseId, authenticatorStore);
+  const authenticators = await getAuthenticatorsByUserId(getDb(), user.id);
+  const authenticator = authenticators.find((a) => a.credential_id === responseId);
 
   if (!authenticator) {
     return { verified: false, error: 'Authenticator not recognized' };
   }
 
   const webAuthnConfig = requireConfig(config);
-  const verification = (await verifyAuthenticationResponse({
+  const verification = await verifyAuthenticationResponse({
     response: body.response,
     expectedChallenge,
     expectedOrigin: webAuthnConfig.rpOrigin,
     expectedRPID: webAuthnConfig.rpId,
     credential: {
       id: authenticator.credential_id,
-      publicKey: getAuthenticatorPublicKey(authenticator),
+      publicKey: isoBase64URL.toBuffer(authenticator.public_key).slice(),
       counter: authenticator.counter ?? 0
     }
-  })) as VerifiedAuthenticationResponse;
+  });
 
   if (!verification.verified || !verification.authenticationInfo) {
     return { verified: false, error: 'Verification failed' };
   }
 
   const newCounter = verification.authenticationInfo.newCounter ?? 0;
-  const updatedAuthenticator = authenticatorStore.updateCounter(authenticator.credential_id, newCounter);
+  const db = getDb();
 
-  return {
-    verified: true,
-    user,
-    authenticator: updatedAuthenticator ?? authenticator,
-    newCounter
-  };
+  try {
+    await db.execute(sql`UPDATE authenticators SET counter = ${newCounter} WHERE credential_id = ${authenticator.credential_id}`);
+  } catch {
+    // Counter update failure is non-fatal
+  }
+
+  return { verified: true, user };
 }
