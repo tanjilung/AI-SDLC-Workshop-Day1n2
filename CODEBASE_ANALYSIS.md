@@ -1,8 +1,7 @@
-# Codebase Analysis: AI-SDLC-Workshop-Day1n2
+# Codebase Analysis: ToDoApp
 
-## Project Overview
-
-A **full-stack Todo Application** built with Next.js 15 (App Router) featuring WebAuthn (passkey) authentication, rich todo management, calendar views, and Singapore timezone support. Built for an AI-SDLC workshop demonstrating the complete software development lifecycle.
+## Overview
+A **Next.js 16** (React 19) full-stack ToDo application with authentication, calendar views, recurring tasks, subtasks, tags, templates, and Singapore holidays. Deployed on Railway with PostgreSQL.
 
 ---
 
@@ -10,217 +9,208 @@ A **full-stack Todo Application** built with Next.js 15 (App Router) featuring W
 
 | Layer | Technology |
 |-------|-----------|
-| **Framework** | Next.js 15 (App Router, Server Components) |
-| **Language** | TypeScript 5.x |
-| **Database** | PostgreSQL (via `pg` + `drizzle-orm/node-postgres`) |
-| **Auth** | WebAuthn/Passkeys (`@simplewebauthn/server` + `@simplewebauthn/browser`) |
-| **Styling** | Tailwind CSS 4.x |
-| **Testing** | Vitest (unit) + Playwright (E2E) |
-| **Linting** | ESLint (Next.js config) |
-| **Deployment** | Railway (Linux/x86-64, nixpacks) |
+| Framework | Next.js 16.0.0 (App Router) |
+| UI | React 19.0.0 + Tailwind CSS 4 |
+| Database | PostgreSQL via `pg` driver + Drizzle ORM (query builder only) |
+| Auth | WebAuthn (`@simplewebauthn/browser/server`) + JWT (`jose`) |
+| Testing | Playwright (E2E) + tsx (unit) |
+| Linting | ESLint 9 + TypeScript 5 |
 
 ---
 
 ## Architecture
 
 ### Directory Structure
-
 ```
-├── app/                      # Next.js App Router
-│   ├── layout.tsx            # Root layout (providers, globals)
-│   ├── page.tsx              # Home page (~2200 lines, monolithic client component)
-│   ├── login/                # Login/register route group
-│   ├── calendar/             # Calendar view
-│   └── api/                  # API routes (REST)
-│       ├── auth/             # WebAuthn auth flow (6 endpoints)
-│       ├── todos/            # CRUD + export/import (+ subtasks/tags per todo)
-│       ├── tags/             # Tag management
-│       ├── templates/        # Template CRUD + use endpoint
-│       ├── subtasks/         # Subtask management
-│       ├── notifications/    # Notification check endpoint
-│       └── holidays/         # Singapore holidays
-├── lib/                      # Business logic (server-safe)
-│   ├── db.ts                 # PostgreSQL connection (pg + drizzle)
-│   ├── todo-types.ts         # Shared type definitions
-│   ├── todo-core.ts          # Validation, sorting, sectioning
-│   ├── subtask-core.ts       # Subtask progress calculation
-│   ├── tag-core.ts           # Tag defaults/helpers
-│   ├── template-core.ts      # Template logic
-│   ├── recurrence.ts         # Recurring todo generation
-│   ├── filters.ts            # Filter presets + applyFilters
-│   ├── calendar.ts           # Calendar view logic
-│   ├── timezone.ts           # Singapore timezone utilities
-│   ├── singapore-holidays.ts # Holiday data + helpers
-│   ├── notifications.ts      # Notification helpers
-│   ├── export-core.ts        # Export logic
-│   ├── import-core.ts        # Import logic
-│   ├── auth.ts               # Auth helpers
-│   ├── auth-core.ts          # Core auth primitives
-│   ├── auth-server.ts        # Server-side auth (sessions)
-│   ├── auth-challenges.ts    # Challenge-based auth
-│   ├── auth-webauthn.ts      # WebAuthn registration/authentication
-│   ├── hooks/                # React hooks
-│       ├── useDebounce.ts
-│       └── useNotifications.ts
-├── tests/                    # Playwright E2E tests (11 feature suites)
-├── PRPs/                     # Product Requirement Documents (11 specs)
-├── scripts/                  # Utility scripts (seed-holidays.ts)
-├── middleware.ts             # Next.js middleware (auth enforcement)
-└── plugins/                  # MCP server configs
+app/                    # Next.js App Router
+  layout.tsx            # Root layout
+  page.tsx              # Home page (todo list)
+  login/                # Authentication pages
+  calendar/             # Calendar view route
+  api/                  # API routes
+lib/                    # Business logic (no ORM models used — raw SQL throughout)
+  db.ts                 # Database layer: raw SQL queries + table DDL + facade pattern
+  todo-core.ts          # Core todo CRUD logic
+  tag-core.ts           # Tag management
+  subtask-core.ts       # Subtask management
+  template-core.ts      # Template system
+  recurrence.ts         # Recurrence calculations
+  calendar.ts           # Calendar view logic
+  notifications.ts      # Notification logic
+  auth-*.ts             # Authentication: core, webauthn, challenges, server
+  import-core.ts        # Import/export
+  export-core.ts        # Export logic
+  filters.ts            # Search/filter helpers
+  holiday modules       # Singapore holidays, timezone
+  hooks/                # React hooks (lib-level)
+tests/                  # 11 Playwright E2E tests matching PRP feature IDs
+PRPs/                   # 11 Product Requirements Profiles
+mcp-configs/            # MCP server configuration
+scripts/                # CLI scripts (seed-holidays.ts)
 ```
 
-### Client/Server Boundary
+### Database Architecture — **CRITICAL ISSUE**
 
-| Category | Examples | Notes |
-|----------|----------|-------|
-| **Pure logic** (safe everywhere) | `todo-core`, `subtask-core`, `tag-core`, `template-core`, `filters`, `timezone`, `recurrence` | No DB/auth imports — can be used in client or server |
-| **Server-only** | `db`, `auth-webauthn`, `auth-server`, `calendar`, `holidays`, `notifications`, `export-core`, `import-core` | Import pg/Node APIs, or WebAuthn server libs |
-| **Client-only** | React hooks (`useDebounce`, `useNotifications`) | Use browser APIs (Window, Notification) |
+The codebase has **two incompatible database layers**:
 
-**Key pattern:** API routes in `app/api/` are Server Components that import `db` and core libraries. The home page (`app/page.tsx`) is `'use client'` and imports only pure-logic libraries for validation/computation, calling REST endpoints via `fetch`.
+#### Layer 1: Raw SQL (Production code — `lib/db.ts`)
+- ALL queries use raw `sql\`...\`` statements via `db.execute()`
+- Tables are created on first access via `createTables()` (DDL embedded)
+- Facade pattern wraps raw queries: `TodoFacade`, `TagFacade`, `SubtaskFacade`, etc.
+- No type-safe column references anywhere — everything is string-based
 
----
+#### Layer 2: Drizzle Schema Definitions (`lib/drizzle-schema.ts`)
+- Uses `pgTable()` to define schema for 8 tables
+- **Never imported by any application code** — dead code
+- Incomplete — missing `notifications` table that exists in the raw SQL DDL
 
-## API Surface (18 endpoints)
+### Key Mismatch Details
 
-### Authentication
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| POST | `/api/auth/register-options` | Get WebAuthn registration options |
-| POST | `/api/auth/register-verify` | Verify registration credential |
-| POST | `/api/auth/login-options` | Get WebAuthn authentication options |
-| POST | `/api/auth/login-verify` | Verify authentication credential |
-| POST | `/api/auth/logout` | Invalidate session |
-| GET | `/api/auth/me` | Get current user (session check) |
+| Field | Raw SQL (db.ts) | Drizzle Schema | Status |
+|-------|-----------------|---------------|--------|
+| `due_date` | `DATE` type | `varchar(10)` | TYPE MISMATCH |
+| `title` | `VARCHAR(255)` | `text()` | DIFFERENT TYPES |
+| `notes` | `TEXT` | `text()` | OK |
+| `transports` | `TEXT` | `text()` | OK |
+| `counter` | `BIGINT` | `integer()` | PRECISION MISMATCH |
+| `notifications` table | EXISTS (DDL line 148) | **ABSENT** | MISSING FROM SCHEMA |
 
-### Todos
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/todos` | List all todos |
-| POST | `/api/todos` | Create todo |
-| GET/PUT/DELETE | `/api/todos/[id]` | Read/update/delete todo |
-| GET | `/api/todos/export?format=` | Export (JSON/CSV) |
-| POST | `/api/todos/import` | Import from JSON/CSV |
-| GET | `/api/todos/[id]/subtasks` | List subtasks for todo |
-| POST | `/api/todos/[id]/tags` | Attach tags to todo |
+### Database Schema (from raw SQL DDL in `db.ts`)
 
-### Tags
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/tags` | List all tags |
-| POST | `/api/tags` | Create tag |
-| GET/PUT/DELETE | `/api/tags/[id]` | Read/update/delete tag |
+**8 tables:**
+1. **todos** — core todo items (id, user_id, title, notes, due_date, completed, priority, is_recurring, recurrence_pattern, reminder_minutes, created_at, updated_at, completed_at)
+2. **tags** — user tags (id, user_id, name, color, created_at, updated_at)
+3. **todo_tags** — junction table for todo-tag many-to-many
+4. **subtasks** — subtask items (id, todo_id, title, completed, position, timestamps)
+5. **templates** — todo templates (id, user_id, name, description, category, title_template, priority, recurrence fields, subtasks_json, timestamps)
+6. **holidays** — Singapore public holidays (date, name, created_at)
+7. **notifications** — reminder notifications (id SERIAL, todo_id, notification_type, scheduled_for, status, timestamps)
+8. **users** — auth users (id, username UNIQUE, password_hash, timestamps)
+9. **authenticators** — WebAuthn credentials (credential_id PK, user_id FK, public_key, counter, transports, timestamps)
 
-### Templates
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/templates` | List all templates |
-| POST | `/api/templates` | Create template |
-| GET/PUT/DELETE | `/api/templates/[id]` | Read/update/delete template |
-| POST | `/api/templates/[id]/use` | Create todo from template |
+### API Structure
 
-### Subtasks
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| PUT/DELETE | `/api/subtasks/[id]` | Update/detach subtask |
-
-### Notifications
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/notifications/check` | Check for due reminders |
-
-### Holidays
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/holidays` | Singapore public holidays |
+```
+app/login/          → Login/register pages
+app/calendar/       → Calendar view page
+app/api/            → API routes (unspecified in tree)
+middleware.ts       → Route protection middleware
+```
 
 ---
 
-## Database Schema
+## Business Logic Highlights
 
-PostgreSQL database (`db.ts`, Drizzle ORM) with these tables:
+### Recurrence System (`lib/recurrence.ts`)
+- Supports: daily, weekly, monthly, yearly
+- `calculateNextOccurrence()` in `db.ts` line 881-898 — basic date math
+- `expandRecurrence()` — finds recurring todos within a date range
 
-| Table | Key Columns |
-|-------|------------|
-| **users** | id, username (unique), password_hash, created_at, updated_at |
-| **authenticators** | credential_id (PK), user_id (FK), public_key, counter, transports |
-| **todos** | id, user_id, title, notes, due_date, completed, priority, is_recurring, recurrence_pattern, reminder_minutes, last_notification_sent, created_at, updated_at, completed_at |
-| **subtasks** | id, todo_id (FK), title, completed, position |
-| **tags** | id, user_id, name (unique per user), color |
-| **todo_tags** | todo_id (FK), tag_id (FK) — composite PK |
-| **templates** | id, user_id, name, description, category, title_template, priority, is_recurring, recurrence_pattern, reminder_minutes, due_date_offset_minutes, subtasks_json, created_at, updated_at |
-| **notifications** | id (SERIAL PK), todo_id (FK), notification_type, scheduled_for, status |
-| **holidays** | date (PK), name, created_at |
+### Tag System (`lib/tag-core.ts`, `lib/db.ts`)
+- M:N relationship via `todo_tags` junction table
+- Tags have name + color
+- User-scoped (`user_id`)
 
-**ID strategy:** `crypto.randomUUID()` (UUID v4) for all entities. `user_id` on todos/templates/tags enables multi-tenant isolation. PostgreSQL enforces foreign keys natively.
+### Subtask System (`lib/subtask-core.ts`, `lib/db.ts`)
+- Position-based ordering
+- Bulk position update support
+- Cascade delete on parent todo
 
----
+### Template System (`lib/template-core.ts`, `lib/db.ts`)
+- Reusable todo structures with subtasks_json stored as TEXT (JSON string)
+- Supports recurrence, reminders, and priority in templates
 
-## Key Code Quality Observations
+### Authentication (`lib/auth-*.ts`)
+- Username/password + WebAuthn (passkeys)
+- JWT tokens via `jose`
+- Users stored in `users` table with password_hash
+- Authenticators in `authenticators` table linked to users
 
-### Strengths
-1. **Strict TypeScript** — Full type safety across shared types, API responses, and client components
-2. **Clean separation of concerns** — Core logic in `lib/` (pure functions), I/O in API routes
-3. **Optimistic UI** — Home page uses optimistic updates with rollback on failure
-4. **Singapore timezone focus** — All date operations use `Asia/Singapore` as the reference timezone
-5. **WebAuthn-first auth** — Passkey-based authentication is properly implemented (register → verify flow)
-6. **Filter presets** — Persisted filter combinations with named presets
-7. **11 E2E test suites** — Comprehensive Playwright tests covering all features
-8. **11 PRD documents** — Complete requirement traceability from specs to implementation
-
-### Concerns
-1. **Monolithic home page** (~2179 lines) — `app/page.tsx` contains ALL UI logic, forms, handlers. Should be split into smaller components.
-2. **Client-side auth state** — Session verification done via `/api/auth/me` fetches on every page load rather than server-component session management
-3. **No rate limiting** — Auth endpoints have no brute-force protection
-4. **Inline error handling** — Repetitive try/catch patterns across handlers with duplicated error display logic
-5. **Raw SQL in Drizzle** — Heavy use of `sql\`raw\`` queries instead of Drizzle's query builder; loses type-safe query compilation benefits
-
-### Architectural Notes
-
-- The middleware (`middleware.ts`) enforces authentication by redirecting unauthenticated users to `/login`
-- Calendar view uses the Singapore timezone for all date calculations
-- Recurring todos are expanded on-the-fly rather than stored as instances
-- Subtasks are scoped per-todo via API path nesting (`/api/todos/[id]/subtasks`)
-- Tags use a junction table (`todo_tags`) for N:M relationships
-- Browser notifications are used for reminders (with permission gating)
+### Calendar View (`lib/calendar.ts`)
+- Month view generation in `buildCalendarMonth()` — hardcoded date math
+- Singapore holidays integration via `singapore-holidays.ts`
 
 ---
 
-## Test Coverage (Playwright E2E)
+## Testing Coverage
 
-| Suite | Feature | File |
-|-------|---------|------|
-| 01 | Todo CRUD operations | `tests/01-todo-crud-operations.spec.ts` |
-| 02 | Priority system | `tests/02-priority-system.spec.ts` |
-| 03 | Recurring todos | `tests/03-recurring-todos.spec.ts` |
-| 04 | Reminders/notifications | `tests/04-reminders-notifications.spec.ts` |
-| 05 | Subtasks | `tests/05-subtasks-progress.spec.ts` |
-| 06 | Tags | `tests/06-tag-system.spec.ts` |
-| 07 | Templates | `tests/07-template-system.spec.ts` |
-| 08 | Search/filtering | `tests/08-search-filtering.spec.ts` |
-| 09 | Export/import | `tests/09-export-import.spec.ts` |
-| 10 | Calendar view | `tests/10-calendar-view.spec.ts` |
-| 11 | WebAuthn auth | `tests/11-authentication-webauthn.spec.ts` |
+| Test File | Feature | Status |
+|-----------|---------|--------|
+| `01-todo-crud-operations.spec.ts` | Create/Read/Update/Delete todos | Planned |
+| `02-priority-system.spec.ts` | Priority levels (high/medium/low) | Planned |
+| `03-recurring-todos.spec.ts` | Recurrence patterns | Planned |
+| `04-reminders-notifications.spec.ts` | Reminder system | Planned |
+| `05-subtasks-progress.spec.ts` | Subtask progress tracking | Planned |
+| `06-tag-system.spec.ts` | Tag management | Planned |
+| `07-template-system.spec.ts` | Todo templates | Planned |
+| `08-search-filtering.spec.ts` | Search + filters | Planned |
+| `09-export-import.spec.ts` | Data portability | Planned |
+| `10-calendar-view.spec.ts` | Calendar display | Planned |
+| `11-authentication-webauthn.spec.ts` | WebAuthn auth | Planned |
+| `smoke.spec.ts` | Health checks | Planned |
 
----
-
-## File Metrics
-
-| Category | Count | Notes |
-|----------|-------|-------|
-| API route files | ~19 | REST endpoints across 7 feature areas |
-| Core library modules | ~20 | Business logic + auth + utilities |
-| React hooks | 2 | `useDebounce`, `useNotifications` |
-| E2E test suites | 11 | Feature-parity with PRDs |
-| PRD documents | 11 | Complete specification coverage |
-| Total source files | ~50 | TypeScript + config files |
+**Gap:** No unit tests (tests/unit/ dir exists but empty). Only Playwright E2E tests.
 
 ---
 
-## Deployment
+## Product Requirements Profiles (PRPs)
 
-- **Platform:** Railway
-- **Build:** nixpacks (auto-detected Node.js + PostgreSQL client library)
-- **Config files:** `nixpacks.toml`, `railway.json`
-- **Environment:** `.env.example` provides required variables template
-- **CI/CD:** GitHub Actions workflow (`github/workflows/ci.yml`)
+11 PRPs exist in `PRPs/` matching the test IDs — this is your requirement-to-implementation traceability.
+
+---
+
+## Critical Issues Summary
+
+### 1. **Dead Drizzle Schema** (HIGH PRIORITY)
+`lib/drizzle-schema.ts` defines 8 tables but:
+- Is never imported anywhere in the app
+- Has type mismatches with actual DDL (due_date, title, counter columns)
+- Missing `notifications` table
+
+**Impact:** If you delete it, nothing breaks. The app runs entirely on raw SQL.
+
+### 2. **No Migration System** (HIGH PRIORITY)
+- No `drizzle.config.*`, no `migrations/` directory
+- Table creation is hardcoded DDL in `createTables()` function
+- New environments rely on this runtime DDL — prone to drift between dev/staging/prod
+
+**Impact:** Manual schema changes must be coordinated across all instances. No rollback capability.
+
+### 3. **No Type-Safe Queries** (MEDIUM PRIORITY)
+All queries use string column names — typos won't be caught at compile time:
+```typescript
+// db.ts line 82 - hardcoded strings, no compiler safety
+await db.execute(sql`SELECT * FROM todos WHERE user_id = ${userId}`)
+```
+
+### 4. **pg Pool SSL in Production** (MEDIUM PRIORITY)
+`lib/db.ts` line 55 — `ssl: { rejectUnauthorized: false }` in production. Accepts any certificate.
+
+### 5. **Facade Pattern Overhead** (LOW PRIORITY)
+`db.ts` lines 906-1221 define facade interfaces (`TodoFacade`, `TagFacade`, etc.) that are just thin wrappers around the raw SQL functions. Adds indirection without adding value.
+
+---
+
+## Recommended Actions
+
+### Immediate (Fix DB layer consistency):
+1. **Option A: Fully adopt Drizzle ORM** — Migrate all raw SQL queries to Drizzle's query builder, add `drizzle-kit` migrations
+2. **Option B: Drop dead schema** — Delete `lib/drizzle-schema.ts`, keep raw SQL, but ensure DDL is the single source of truth
+
+### Short-term:
+3. Add Drizzle/Kysely migrations from existing DDL
+4. Fix SSL config for production (`rejectUnauthorized: true`)
+5. Add unit tests (currently 0 coverage)
+
+### Long-term:
+6. Consider type generation (e.g., `drizzle-kit generate` → auto-generated TS types for all tables)
+7. Migrate from `pg` to a more modern wrapper if desired (Kysely, Prisma, etc.) — but only after deciding on Option A or B above
+
+---
+
+## Files Count
+- **lib/**: 18 modules (core business logic)
+- **tests/**: 12 spec files (11 feature + smoke)
+- **PRPs/**: 11 requirement docs
+- **App routes**: login/, calendar/, api/
+- **Total deps**: ~14 (6 production, 8 dev)
