@@ -20,7 +20,7 @@ export async function POST(
   }
 
   const { id } = await params;
-  const todo = getTodoDB().findByIdForUser(id, session.userId);
+  const todo = await getTodoDB().findByIdForUser(id, session.userId);
   if (!todo) {
     return NextResponse.json({ error: 'Todo not found' }, { status: 404 });
   }
@@ -28,7 +28,7 @@ export async function POST(
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const tagId = validateTagId(body.tag_id);
-    const attached = getTagDB().attachToTodo(id, tagId, session.userId);
+    const attached = await getTagDB().attachToTodo(id, tagId, session.userId);
     if (!attached) {
       return NextResponse.json({ error: 'Tag not found' }, { status: 404 });
     }
@@ -52,7 +52,7 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  const todo = getTodoDB().findByIdForUser(id, session.userId);
+  const todo = await getTodoDB().findByIdForUser(id, session.userId);
   if (!todo) {
     return NextResponse.json({ error: 'Todo not found' }, { status: 404 });
   }
@@ -60,7 +60,7 @@ export async function DELETE(
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const tagId = validateTagId(body.tag_id);
-    const detached = getTagDB().detachFromTodo(id, tagId, session.userId);
+    const detached = await getTagDB().detachFromTodo(id, tagId, session.userId);
     if (!detached) {
       return NextResponse.json({ error: 'Tag not found' }, { status: 404 });
     }

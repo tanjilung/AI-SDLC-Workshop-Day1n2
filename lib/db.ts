@@ -902,3 +902,320 @@ export function resolveRecurrencePattern(pattern: string | null): RecurrencePatt
   const valid: RecurrencePattern[] = ['daily', 'weekly', 'monthly', 'yearly'];
   return valid.includes(pattern as RecurrencePattern) ? (pattern as RecurrencePattern) : null;
 }
+
+// ==================== DATABASE FACADE LAYER ====================
+
+// Cache the facade so we only create it once
+let todoFacade: TodoFacade | null = null;
+let tagFacade: TagFacade | null = null;
+let subtaskFacade: SubtaskFacade | null = null;
+let templateFacade: TemplateFacade | null = null;
+let holidayFacade: HolidayFacade | null = null;
+let authFacade: AuthFacade | null = null;
+
+interface TodoFacade {
+  create(todo: Omit<Todo, 'id' | 'created_at' | 'updated_at'>): Promise<Todo>;
+  findAll(userId: string): Promise<Todo[]>;
+  findAllWithRelations(userId: string): Promise<(Todo & { tags?: Tag[]; subtasks?: Subtask[] })[]>;
+  findByIdForUser(todoId: string, userId: string): Promise<(Todo & { tags?: Tag[]; subtasks?: Subtask[] }) | null>;
+  update(id: string, userId: string, updates: Partial<Omit<Todo, 'id' | 'user_id' | 'created_at'>>): Promise<Todo>;
+  delete(id: string, userId: string): Promise<boolean>;
+  findByRange(userId: string, startDate: Date, endDate: Date): Promise<Todo[]>;
+  findAllByUser(userId: string): Promise<Todo[]>;
+  importAll(userId: string, todosData: any[]): Promise<ImportResult>;
+}
+
+interface TagFacade {
+  create(userId: string, data: Omit<Tag, 'id' | 'created_at' | 'updated_at'>): Promise<Tag>;
+  findAllByUser(userId: string): Promise<Tag[]>;
+  findById(id: string, userId: string): Promise<Tag | null>;
+  update(id: string, userId: string, updates: Partial<Pick<Tag, 'name' | 'color'>>): Promise<Tag>;
+  delete(id: string, userId: string): Promise<boolean>;
+  attachToTodo(todoId: string, tagId: string, userId: string): Promise<boolean>;
+  detachFromTodo(todoId: string, tagId: string, userId: string): Promise<boolean>;
+}
+
+interface SubtaskFacade {
+  create(data: Omit<Subtask, 'id' | 'created_at' | 'updated_at'>): Promise<Subtask>;
+  findById(id: string, userId: string): Promise<Subtask | null>;
+  update(id: string, userId: string, updates: Partial<Pick<Subtask, 'title' | 'completed' | 'position'>>): Promise<Subtask>;
+  delete(id: string, userId: string): Promise<boolean>;
+  findAllByTodo(todoId: string): Promise<Subtask[]>;
+}
+
+interface TemplateFacade {
+  create(data: Omit<Template, 'id' | 'created_at' | 'updated_at'>): Promise<Template>;
+  findAllByUser(userId: string): Promise<Template[]>;
+  findById(id: string, userId: string): Promise<Template | null>;
+  update(id: string, userId: string, updates: Partial<Omit<Template, 'id' | 'user_id' | 'created_at'>>): Promise<Template>;
+  delete(id: string, userId: string): Promise<boolean>;
+}
+
+interface HolidayFacade {
+  create(holiday: Omit<Holiday, 'created_at'>): Promise<void>;
+  findAll(): Promise<Holiday[]>;
+  findByRange(startDate: Date, endDate: Date): Promise<Holiday[]>;
+}
+
+interface AuthFacade {
+  createUser(username: string, passwordHash: string): Promise<User>;
+  getUserByUsername(username: string): Promise<User | null>;
+  getUserByCredentialId(credentialId: string): Promise<User | null>;
+  createAuthenticator(auth: Omit<Authenticator, 'created_at' | 'updated_at'>): Promise<Authenticator>;
+  getAuthenticatorsByUserId(userId: string): Promise<Authenticator[]>;
+  deleteAuthenticator(credentialId: string): Promise<void>;
+}
+
+function createTodoFacade(): TodoFacade {
+  const db = getDb();
+  return {
+    async create(todoData) {
+      return createTodo(db, todoData);
+    },
+    async findAll(userId) {
+      return getTodosByUserId(db, userId);
+    },
+    async findAllWithRelations(userId) {
+      const todos = await getTodosByUserId(db, userId);
+      const result = [];
+      for (const todo of todos) {
+        const tags = await getTagsForTodo(db, todo.id);
+        const subtasks = await getSubtasksForTodo(db, todo.id);
+        result.push({ ...todo, tags, subtasks });
+      }
+      return result;
+    },
+    async findByIdForUser(todoId, userId) {
+      const todo = await getTodoById(db, todoId);
+      if (!todo || todo.user_id !== userId) return null;
+      const tags = await getTagsForTodo(db, todo.id);
+      const subtasks = await getSubtasksForTodo(db, todo.id);
+      return { ...todo, tags, subtasks };
+    },
+    async update(id, userId, updates) {
+      const todo = await getTodoById(db, id);
+      if (!todo || todo.user_id !== userId) throw new Error('Todo not found');
+      return updateTodo(db, id, updates);
+    },
+    async delete(id, userId) {
+      const todo = await getTodoById(db, id);
+      if (!todo || todo.user_id !== userId) return false;
+      await deleteTodo(db, id);
+      return true;
+    },
+    async findByRange(userId, startDate, endDate) {
+      const startStr = startDate.toISOString().split('T')[0];
+      const endStr = endDate.toISOString().split('T')[0];
+      const result = await db.execute(sql`
+        SELECT * FROM todos WHERE user_id = ${userId} AND due_date BETWEEN ${startStr} AND ${endStr} ORDER BY due_date
+      `);
+      return result.rows.map(mapTodoRow);
+    },
+    async findAllByUser(userId) {
+      const result = await db.execute(sql`SELECT * FROM todos WHERE user_id = ${userId} ORDER BY created_at DESC`);
+      return result.rows.map(mapTodoRow);
+    },
+    async importAll(userId, todosData) {
+      let createdCount = 0;
+      for (const data of todosData) {
+        const existing = await db.execute(sql`SELECT id FROM todos WHERE id = ${data.id}`);
+        if (existing.rows.length > 0) {
+          continue; // Skip existing during import
+        }
+        await createTodo(db, data as Omit<Todo, 'id' | 'created_at' | 'updated_at'> & { user_id: string });
+        createdCount++;
+      }
+      return { imported: createdCount, tagsCreated: 0, tagsReused: 0 };
+    },
+  };
+}
+
+function createTagFacade(): TagFacade {
+  const db = getDb();
+  return {
+    async create(userId, data) {
+      return createTag(db, { ...data, user_id: userId });
+    },
+    async findAllByUser(userId) {
+      return getUserTags(db, userId);
+    },
+    async findById(id, userId) {
+      const result = await db.execute(sql`SELECT * FROM tags WHERE id = ${id} AND user_id = ${userId}`);
+      const row = result.rows[0];
+      if (!row) return null;
+      return mapTagRow(row);
+    },
+    async update(id, userId, updates) {
+      const existing = await db.execute(sql`SELECT * FROM tags WHERE id = ${id} AND user_id = ${userId}`);
+      if (!existing.rows.length) throw new Error('Tag not found');
+      const setClauses: string[] = [];
+      const values: (string | number)[] = [];
+      let paramIndex = 1;
+      if (updates.name !== undefined) { setClauses.push(`name = $${paramIndex++}`); values.push(updates.name); }
+      if (updates.color !== undefined) { setClauses.push(`color = $${paramIndex++}`); values.push(updates.color); }
+      setClauses.push(`updated_at = $${paramIndex++}`);
+      values.push(new Date().toISOString());
+      values.push(id);
+      await db.execute(sql`UPDATE tags SET ${sql.raw(setClauses.slice(0, -1).join(', '))} WHERE id = $${paramIndex}`);
+      const result = await db.execute(sql`SELECT * FROM tags WHERE id = ${id}`);
+      return mapTagRow(result.rows[0]);
+    },
+    async delete(id, userId) {
+      const existing = await db.execute(sql`SELECT * FROM tags WHERE id = ${id} AND user_id = ${userId}`);
+      if (!existing.rows.length) return false;
+      await db.execute(sql`DELETE FROM tags WHERE id = ${id}`);
+      return true;
+    },
+    async attachToTodo(todoId, tagId, userId) {
+      const tag = await db.execute(sql`SELECT * FROM tags WHERE id = ${tagId} AND user_id = ${userId}`);
+      if (!tag.rows.length) return false;
+      await db.execute(sql`INSERT INTO todo_tags (todo_id, tag_id) VALUES (${todoId}, ${tagId}) ON CONFLICT DO NOTHING`);
+      return true;
+    },
+    async detachFromTodo(todoId, tagId, userId) {
+      const tag = await db.execute(sql`SELECT * FROM tags WHERE id = ${tagId} AND user_id = ${userId}`);
+      if (!tag.rows.length) return false;
+      await db.execute(sql`DELETE FROM todo_tags WHERE todo_id = ${todoId} AND tag_id = ${tagId}`);
+      return true;
+    },
+  };
+}
+
+function createSubtaskFacade(): SubtaskFacade {
+  const db = getDb();
+  return {
+    async create(data) {
+      return createSubtask(db, data);
+    },
+    async findById(id, userId) {
+      const result = await db.execute(sql`
+        SELECT s.* FROM subtasks s
+        INNER JOIN todos t ON s.todo_id = t.id
+        WHERE s.id = ${id} AND t.user_id = ${userId}
+      `);
+      return result.rows[0] ? mapSubtaskRow(result.rows[0]) : null;
+    },
+    async update(id, userId, updates) {
+      const existing = await db.execute(sql`
+        SELECT s.* FROM subtasks s
+        INNER JOIN todos t ON s.todo_id = t.id
+        WHERE s.id = ${id} AND t.user_id = ${userId}
+      `);
+      if (!existing.rows.length) throw new Error('Subtask not found');
+      return updateSubtask(db, id, updates);
+    },
+    async delete(id, userId) {
+      const existing = await db.execute(sql`
+        SELECT s.* FROM subtasks s
+        INNER JOIN todos t ON s.todo_id = t.id
+        WHERE s.id = ${id} AND t.user_id = ${userId}
+      `);
+      if (!existing.rows.length) return false;
+      await deleteSubtask(db, id);
+      return true;
+    },
+    async findAllByTodo(todoId) {
+      return getSubtasksForTodo(db, todoId);
+    },
+  };
+}
+
+function createTemplateFacade(): TemplateFacade {
+  const db = getDb();
+  return {
+    async create(data) {
+      return createTemplate(db, data);
+    },
+    async findAllByUser(userId) {
+      return getTemplatesByUserId(db, userId);
+    },
+    async findById(id, userId) {
+      const result = await db.execute(sql`SELECT * FROM templates WHERE id = ${id} AND user_id = ${userId}`);
+      return result.rows[0] ? mapTemplateRow(result.rows[0]) : null;
+    },
+    async update(id, userId, updates) {
+      const existing = await db.execute(sql`SELECT * FROM templates WHERE id = ${id} AND user_id = ${userId}`);
+      if (!existing.rows.length) throw new Error('Template not found');
+      return updateTemplate(db, id, updates);
+    },
+    async delete(id, userId) {
+      const existing = await db.execute(sql`SELECT * FROM templates WHERE id = ${id} AND user_id = ${userId}`);
+      if (!existing.rows.length) return false;
+      await deleteTemplate(db, id);
+      return true;
+    },
+  };
+}
+
+function createHolidayFacade(): HolidayFacade {
+  const db = getDb();
+  return {
+    async create(holidayData) {
+      return upsertHoliday(db, holidayData);
+    },
+    async findAll() {
+      return getAllHolidays(db);
+    },
+    async findByRange(startDate, endDate) {
+      return getHolidaysBetween(db, startDate, endDate);
+    },
+  };
+}
+
+function createAuthFacade(): AuthFacade {
+  const db = getDb();
+  return {
+    async createUser(username, passwordHash) {
+      return createUser(db, { username, password_hash: passwordHash });
+    },
+    async getUserByUsername(username) {
+      return getUserByUsername(db, username);
+    },
+    async getUserByCredentialId(credentialId) {
+      return getUserByCredentialId(db, credentialId);
+    },
+    async createAuthenticator(authData) {
+      return createAuthenticator(db, authData);
+    },
+    async getAuthenticatorsByUserId(userId) {
+      return getAuthenticatorsByUserId(db, userId);
+    },
+    async deleteAuthenticator(credentialId) {
+      return deleteAuthenticator(db, credentialId);
+    },
+  };
+}
+
+export function getTodoDB(): TodoFacade {
+  if (!todoFacade) todoFacade = createTodoFacade();
+  return todoFacade;
+}
+
+export function getTagDB(): TagFacade {
+  if (!tagFacade) tagFacade = createTagFacade();
+  return tagFacade;
+}
+
+export function getSubtaskDB(): SubtaskFacade {
+  if (!subtaskFacade) subtaskFacade = createSubtaskFacade();
+  return subtaskFacade;
+}
+
+export function getTemplateDB(): TemplateFacade {
+  if (!templateFacade) templateFacade = createTemplateFacade();
+  return templateFacade;
+}
+
+export function getHolidayDB(): HolidayFacade {
+  if (!holidayFacade) holidayFacade = createHolidayFacade();
+  return holidayFacade;
+}
+
+export function getAuthenticatorDB(): AuthFacade {
+  if (!authFacade) authFacade = createAuthFacade();
+  return authFacade;
+}
+
+export function getUserDB(): AuthFacade {
+  return getAuthenticatorDB();
+}

@@ -7,8 +7,8 @@ import { normalizeTemplateSubtasks } from '@/lib/template-core';
 import { validateTodoDueDate, validateTodoTitle, validateUpdatePriority } from '@/lib/todo-core';
 import { getSingaporeNow } from '@/lib/timezone';
 
-function getTodoForRequest(todoId: string, userId: string) {
-  return getTodoDB().findByIdForUser(todoId, userId);
+async function getTodoForRequest(todoId: string, userId: string) {
+  return await getTodoDB().findByIdForUser(todoId, userId);
 }
 
 export async function GET(
@@ -21,7 +21,7 @@ export async function GET(
   }
 
   const { id } = await params;
-  const todo = getTodoForRequest(id, session.userId);
+  const todo = await getTodoForRequest(id, session.userId);
   if (!todo) {
     return NextResponse.json({ error: 'Todo not found' }, { status: 404 });
   }
@@ -38,8 +38,8 @@ export async function PUT(
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  const { id } = await params;
-  const existing = getTodoForRequest(id, session.userId);
+   const { id } = await params;
+   const existing = await getTodoForRequest(id, session.userId);
   if (!existing) {
     return NextResponse.json({ error: 'Todo not found' }, { status: 404 });
   }
@@ -93,7 +93,7 @@ export async function PUT(
           ? undefined
           : body.recurrence_pattern === null
             ? null
-            : String(body.recurrence_pattern) as never,
+            : (String(body.recurrence_pattern) as 'daily' | 'weekly' | 'monthly' | 'yearly'),
       reminder_minutes:
         body.reminder_minutes === undefined || body.reminder_minutes === null
           ? body.reminder_minutes === undefined
@@ -121,7 +121,7 @@ export async function PUT(
     }
 
     if (completed === true && !existing.completed && existing.is_recurring && existing.recurrence_pattern && existing.due_date) {
-      getTodoDB().create({
+      await getTodoDB().create({
         user_id: session.userId,
         title: existing.title,
         notes: existing.notes,
@@ -158,7 +158,7 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  const deleted = getTodoDB().delete(id, session.userId);
+  const deleted = await getTodoDB().delete(id, session.userId);
   if (!deleted) {
     return NextResponse.json({ error: 'Todo not found' }, { status: 404 });
   }
