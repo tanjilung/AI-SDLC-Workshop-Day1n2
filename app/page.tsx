@@ -1650,10 +1650,10 @@ export default function HomePage() {
       </div>
 
       {editingTodo ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4" onClick={cancelEdit}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4" onMouseDown={cancelEdit}>
           <div
             className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl"
-            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label="Edit todo"
@@ -1803,7 +1803,7 @@ export default function HomePage() {
       {showManageTags ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4"
-          onClick={() => {
+          onMouseDown={() => {
             setShowManageTags(false);
             setEditingTag(null);
             setTagError(null);
@@ -1811,7 +1811,7 @@ export default function HomePage() {
         >
           <div
             className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl"
-            onClick={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label="Manage Tags"
@@ -1973,10 +1973,10 @@ export default function HomePage() {
       ) : null}
 
       {showTemplateManager ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4" onClick={() => setShowTemplateManager(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4" onMouseDown={() => setShowTemplateManager(false)}>
           <div
             className="w-full max-w-3xl rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl"
-            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label="Templates"
@@ -2052,14 +2052,14 @@ export default function HomePage() {
       {showSaveTemplateModal ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4"
-          onClick={() => {
+          onMouseDown={() => {
             setShowSaveTemplateModal(false);
             setSaveTemplateForm(INITIAL_TEMPLATE_FORM);
           }}
         >
           <div
             className="w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl"
-            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label="Save as Template"
@@ -2127,14 +2127,14 @@ export default function HomePage() {
       {showSavePresetModal ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4"
-          onClick={() => {
+          onMouseDown={() => {
             setShowSavePresetModal(false);
             setPresetName('');
           }}
         >
           <div
             className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl"
-            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="mb-4">
               <h2 className="text-2xl font-semibold">Save filter preset</h2>
