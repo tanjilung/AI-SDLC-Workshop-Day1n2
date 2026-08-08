@@ -210,7 +210,7 @@ export async function createTodo(
     createdAt: now,
     updatedAt: now,
     completedAt: todo.completed_at ? new Date(todo.completed_at) : null,
-  }).run();
+  });
 
   return { ...todo, id, created_at: nowIso, updated_at: nowIso } as Todo;
 }
@@ -290,7 +290,7 @@ export async function updateTodo(
 
   setObj.updatedAt = new Date();
 
-  await db.update(schema.todos).set(setObj).where(eq(schema.todos.id, id)).run();
+  await db.update(schema.todos).set(setObj).where(eq(schema.todos.id, id));
 
   const rows = await db.select().from(schema.todos).where(eq(schema.todos.id, id)).limit(1);
   let todo = rows[0] ? mapTodoRow(rows[0]) : null;
@@ -302,7 +302,7 @@ export async function updateTodo(
 }
 
 export async function deleteTodo(db: ReturnType<typeof drizzle>, id: string): Promise<void> {
-  await db.delete(schema.todos).where(eq(schema.todos.id, id)).run();
+  await db.delete(schema.todos).where(eq(schema.todos.id, id));
 }
 
 // ==================== TAG OPERATIONS ====================
@@ -320,12 +320,12 @@ export async function createTag(
     color: tag.color,
     createdAt: now,
     updatedAt: now,
-  }).run();
+  });
   return { ...tag, id, created_at: now.toISOString(), updated_at: now.toISOString() };
 }
 
 export async function deleteTag(db: ReturnType<typeof drizzle>, id: string): Promise<void> {
-  await db.delete(schema.tags).where(eq(schema.tags.id, id)).run();
+  await db.delete(schema.tags).where(eq(schema.tags.id, id));
 }
 
 export async function addTagToTodo(
@@ -345,7 +345,7 @@ export async function removeTagFromTodo(
   todoId: string,
   tagId: string
 ): Promise<void> {
-  await db.delete(schema.todoTags).where(eq(schema.todoTags.todoId, todoId)).where(eq(schema.todoTags.tagId, tagId)).run();
+  await db.delete(schema.todoTags).where(eq(schema.todoTags.todoId, todoId)).where(eq(schema.todoTags.tagId, tagId));
 }
 
 export async function getTagsForTodo(
@@ -401,7 +401,7 @@ export async function createSubtask(
     position: subtask.position,
     createdAt: now,
     updatedAt: now,
-  }).run();
+  });
   return { ...subtask, id, created_at: now.toISOString(), updated_at: now.toISOString() };
 }
 
@@ -416,13 +416,13 @@ export async function updateSubtask(
   if (updates.position !== undefined) setObj.position = updates.position;
   setObj.updatedAt = new Date();
 
-  await db.update(schema.subtasks).set(setObj).where(eq(schema.subtasks.id, id)).run();
+  await db.update(schema.subtasks).set(setObj).where(eq(schema.subtasks.id, id));
   const rows = await db.select().from(schema.subtasks).where(eq(schema.subtasks.id, id)).limit(1);
   return rows[0] ? mapSubtaskRow(rows[0])! : (updates as unknown as Subtask);
 }
 
 export async function deleteSubtask(db: ReturnType<typeof drizzle>, id: string): Promise<void> {
-  await db.delete(schema.subtasks).where(eq(schema.subtasks.id, id)).run();
+  await db.delete(schema.subtasks).where(eq(schema.subtasks.id, id));
 }
 
 export async function getSubtasksForTodo(
@@ -440,7 +440,7 @@ export async function bulkUpdateSubtaskPositions(
   updates: Array<{ id: string; position: number }>
 ): Promise<void> {
   for (const update of updates) {
-    await db.update(schema.subtasks).set({ position: update.position, updatedAt: new Date() }).where(eq(schema.subtasks.id, update.id)).run();
+    await db.update(schema.subtasks).set({ position: update.position, updatedAt: new Date() }).where(eq(schema.subtasks.id, update.id));
   }
 }
 
@@ -467,7 +467,7 @@ export async function createTemplate(
     subtasksJson: template.subtasks_json ?? null,
     createdAt: now,
     updatedAt: now,
-  }).run();
+  });
   return { ...template, id, created_at: now.toISOString(), updated_at: now.toISOString() };
 }
 
@@ -507,13 +507,13 @@ export async function updateTemplate(
   if (updates.subtasks_json !== undefined) setObj.subtasksJson = updates.subtasks_json || null;
   setObj.updatedAt = new Date();
 
-  await db.update(schema.templates).set(setObj).where(eq(schema.templates.id, id)).run();
+  await db.update(schema.templates).set(setObj).where(eq(schema.templates.id, id));
   const rows = await db.select().from(schema.templates).where(eq(schema.templates.id, id)).limit(1);
   return mapTemplateRow(rows[0]);
 }
 
 export async function deleteTemplate(db: ReturnType<typeof drizzle>, id: string): Promise<void> {
-  await db.delete(schema.templates).where(eq(schema.templates.id, id)).run();
+  await db.delete(schema.templates).where(eq(schema.templates.id, id));
 }
 
 // ==================== HOLIDAY OPERATIONS ====================
@@ -526,7 +526,7 @@ export async function upsertHoliday(
   try {
     // Try to use Drizzle upsert helpers if available
     // @ts-ignore
-    await db.insert(schema.holidays).values({ date: dateStr, name: holiday.name, createdAt: new Date() }).onConflictDoUpdate({ target: 'date', set: { name: holiday.name } }).run();
+    await db.insert(schema.holidays).values({ date: dateStr, name: holiday.name, createdAt: new Date() }).onConflictDoUpdate({ target: 'date', set: { name: holiday.name } });
   } catch {
     // Fallback to raw SQL ON CONFLICT for portability
     await db.execute(sql`INSERT INTO holidays (date, name) VALUES (${dateStr}, ${holiday.name}) ON CONFLICT (date) DO UPDATE SET name = ${holiday.name}`);
@@ -627,7 +627,7 @@ export async function createNotificationLog(
     status: 'pending',
     createdAt: new Date(),
     updatedAt: new Date(),
-  }).run();
+  });
 }
 
 export async function updateNotificationStatus(
@@ -645,7 +645,7 @@ export async function updateNotificationStatus(
 }
 
 export async function markAsSent(db: ReturnType<typeof drizzle>, notificationId: number): Promise<void> {
-  await db.update(schema.notifications).set({ status: 'sent', updatedAt: new Date() }).where(eq(schema.notifications.id, notificationId)).run();
+  await db.update(schema.notifications).set({ status: 'sent', updatedAt: new Date() }).where(eq(schema.notifications.id, notificationId));
 }
 
 // ==================== AUTH OPERATIONS ====================
@@ -664,7 +664,7 @@ export async function createUser(
 ): Promise<User> {
   const id = crypto.randomUUID();
   const now = new Date();
-  await db.insert(schema.users).values({ id, username: userData.username, passwordHash: userData.password_hash ?? null, createdAt: now, updatedAt: now }).run();
+  await db.insert(schema.users).values({ id, username: userData.username, passwordHash: userData.password_hash ?? null, createdAt: now, updatedAt: now });
   return { ...userData, id, created_at: now.toISOString(), updated_at: now.toISOString() } as User;
 }
 
@@ -694,7 +694,7 @@ export async function createAuthenticator(
     transports: auth.transports ?? null,
     createdAt: now,
     updatedAt: now,
-  }).run();
+  });
   return { ...auth, created_at: now.toISOString(), updated_at: now.toISOString() };
 }
 
@@ -707,7 +707,7 @@ export async function getAuthenticatorsByUserId(
 }
 
 export async function deleteAuthenticator(db: ReturnType<typeof drizzle>, credentialId: string): Promise<void> {
-  await db.delete(schema.authenticators).where(eq(schema.authenticators.credentialId, credentialId)).run();
+  await db.delete(schema.authenticators).where(eq(schema.authenticators.credentialId, credentialId));
 }
 
 // ==================== EXPORT/IMPORT OPERATIONS ====================
@@ -741,7 +741,7 @@ export async function importTodos(
     } else {
       const tagId = crypto.randomUUID();
       const now = new Date();
-      await db.insert(schema.tags).values({ id: tagId, userId, name: tag.name, color: tag.color, createdAt: now, updatedAt: now }).run();
+      await db.insert(schema.tags).values({ id: tagId, userId, name: tag.name, color: tag.color, createdAt: now, updatedAt: now });
       tagsCreated++;
     }
   }
@@ -1061,14 +1061,14 @@ function createTagFacade(): TagFacade {
           if (updates.name !== undefined) setObj.name = updates.name;
           if (updates.color !== undefined) setObj.color = updates.color;
           setObj.updatedAt = new Date();
-          await db.update(schema.tags).set(setObj).where(eq(schema.tags.id, id)).run();
+          await db.update(schema.tags).set(setObj).where(eq(schema.tags.id, id));
           const rows = await db.select().from(schema.tags).where(eq(schema.tags.id, id)).limit(1);
           return mapTagRow(rows[0]);
         },
         async delete(id, userId) {
           const existing = await db.select().from(schema.tags).where(eq(schema.tags.id, id)).where(eq(schema.tags.userId, userId)).limit(1);
           if (!existing.length) return false;
-          await db.delete(schema.tags).where(eq(schema.tags.id, id)).run();
+          await db.delete(schema.tags).where(eq(schema.tags.id, id));
           return true;
         },
 
@@ -1078,7 +1078,7 @@ function createTagFacade(): TagFacade {
           // Use Drizzle insert with onConflictDoNothing when available; fallback to raw SQL if not
           try {
             // @ts-ignore - onConflictDoNothing may exist depending on drizzle version
-            await db.insert(schema.todoTags).values({ todoId, tagId }).onConflictDoNothing().run();
+            await db.insert(schema.todoTags).values({ todoId, tagId }).onConflictDoNothing();
           } catch {
             // fallback to raw SQL if the dialect doesn't support the builder method
             await db.execute(sql`INSERT INTO todo_tags (todo_id, tag_id) VALUES (${todoId}, ${tagId}) ON CONFLICT DO NOTHING`);
@@ -1088,7 +1088,7 @@ function createTagFacade(): TagFacade {
         async detachFromTodo(todoId, tagId, userId) {
           const tag = await db.select().from(schema.tags).where(eq(schema.tags.id, tagId)).where(eq(schema.tags.userId, userId)).limit(1);
           if (!tag.length) return false;
-          await db.delete(schema.todoTags).where(eq(schema.todoTags.todoId, todoId)).where(eq(schema.todoTags.tagId, tagId)).run();
+          await db.delete(schema.todoTags).where(eq(schema.todoTags.todoId, todoId)).where(eq(schema.todoTags.tagId, tagId));
           return true;
         },
 
