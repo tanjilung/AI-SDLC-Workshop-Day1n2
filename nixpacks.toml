@@ -2,11 +2,11 @@
 image = "node"
 
 [phases.setup]
-nixPkgs = ['python3', 'pkg-config', 'sqlite-deprecated', 'gcc', 'glibc', 'make']
+nixPkgs = ["nodejs", "python3", "gcc", "gnumake", "pkg-config"]
 
 [phases.dependencies]
 cmds = [
-  'npm install --build-from-source --prefer-offline'
+  "npm install --build-from-source --prefer-offline"
 ]
 
 [start]
