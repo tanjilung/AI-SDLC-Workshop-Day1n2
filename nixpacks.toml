@@ -1,2 +1,20 @@
+[provider]
+image = "node"
+
+[phases.setup]
+nixPkgs = ["nodejs", "python3", "gcc", "gnumake", "pkg-config"]
+
+[phases.dependencies]
+cmds = [
+  "npm install --build-from-source --prefer-offline"
+]
+
+[providers.node]
+packager = "npm"
+
 [phases.build]
+cmds = ["npm run build"]
 cacheDirectories = ["node_modules/.cache", ".next/cache"]
+
+[start]
+cmd = "npm run db:migrate && next start"
