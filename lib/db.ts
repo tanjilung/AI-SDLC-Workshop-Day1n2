@@ -1115,13 +1115,8 @@ function createSubtaskFacade(): SubtaskFacade {
       return updateSubtask(db, id, updates);
     },
     async delete(id, userId) {
-      const existing = await db
-        .select()
-        .from(schema.subtasks)
-        .innerJoin(schema.todos, eq(schema.subtasks.todoId, schema.todos.id))
-        .where(eq(schema.subtasks.id, id))
-        .where(eq(schema.todos.userId, userId))
-        .limit(1);
+      const q8 = (db.select().from(schema.subtasks).innerJoin(schema.todos, eq(schema.subtasks.todoId, schema.todos.id))) as any;
+      const existing = await q8.where(eq(schema.subtasks.id, id)).where(eq(schema.todos.userId, userId)).limit(1);
       if (!existing.length) return false;
       await deleteSubtask(db, id);
       return true;
