@@ -71,15 +71,18 @@ export function parseSingaporeDateTimeLocal(value: string): Date {
     throw new Error('Due date must be a valid date');
   }
 
-  const [, year, month, day, hour, minute] = match;
-  // Treat the input as UTC directly so the time components are preserved exactly.
-  return new Date(Date.UTC(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute)
-  ));
+  const [, yearStr, monthStr, dayStr, hourStr, minuteStr] = match;
+  const year = Number(yearStr);
+  const month = Number(monthStr) - 1;
+  const day = Number(dayStr);
+  const hour = Number(hourStr);
+  const minute = Number(minuteStr);
+
+  // Singapore is UTC+8 with no DST. Convert the wall-clock time in UTC+8
+  // to a UTC timestamp by subtracting 8 hours (28800_000 ms).
+  const utcTimestamp = Date.UTC(year, month, day, hour, minute) - 8 * 60 * 60 * 1000;
+
+  return new Date(utcTimestamp);
 }
 
 export function getSingaporeTimeZone(): string {

@@ -41,8 +41,14 @@ export async function POST(request: NextRequest) {
       if (body.due_date === null || body.due_date === '') {
         dueDate = null;
       } else if (typeof body.due_date === 'string') {
-        const parsed = parseSingaporeDateTimeLocal(body.due_date);
-        dueDate = parsed.toISOString();
+        // Handle ISO string from frontend or YYYY-MM-DDTHH:mm from form
+        if (body.due_date.includes('T') && /\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(body.due_date)) {
+          // Already an ISO timestamp — parse directly as UTC
+          dueDate = new Date(body.due_date).toISOString();
+        } else {
+          const parsed = parseSingaporeDateTimeLocal(body.due_date);
+          dueDate = parsed.toISOString();
+        }
       } else {
         dueDate = validateTodoDueDate(body.due_date, getSingaporeNow());
       }
