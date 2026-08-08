@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { getHolidayDB } from '@/lib/db';
-import { getMonthBounds } from '@/lib/calendar';
+import { getDb, getHolidayDB } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -9,19 +8,28 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  const yearParam = request.nextUrl.searchParams.get('year');
-  const monthParam = request.nextUrl.searchParams.get('month');
+  const year = Number(request.nextUrl.searchParams.get('year'));
+  const month = Number(request.nextUrl.searchParams.get('month'));
 
-  if (!yearParam || !monthParam) {
-    return NextResponse.json({ holidays: getHolidayDB().findAll() });
+  if (!year || !month) {
+    return NextResponse.json(
+      { error: 'Missing year or month parameter' },
+      { status: 400 }
+    );
   }
 
-  const year = Number(yearParam);
-  const month = Number(monthParam);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
-    return NextResponse.json({ error: 'Invalid year or month' }, { status: 400 });
-  }
+  try {
+    const startDate = new Date(Date.UTC(year, month - 1, 1));
+    const endDate = new Date(Date.UTC(year, month, 0)); // last day of the month
 
-  const bounds = getMonthBounds(year, month);
-  return NextResponse.json({ holidays: getHolidayDB().findByRange(new Date(bounds.startDate), new Date(bounds.endDate)) });
+    const holidayDB = getHolidayDB();
+    const holidays = await holidayDB.findByRange(startDate, endDate);
+
+    return NextResponse.json({ holidays });
+  } catch {
+    return NextResponse.json(
+      { error: 'Failed to fetch holidays' },
+      { status: 500 }
+    );
+  }
 }
