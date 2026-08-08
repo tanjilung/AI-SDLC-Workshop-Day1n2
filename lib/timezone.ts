@@ -72,15 +72,14 @@ export function parseSingaporeDateTimeLocal(value: string): Date {
   }
 
   const [, year, month, day, hour, minute] = match;
-  const utcTimestamp = Date.UTC(
+  // Treat the input as UTC directly so the time components are preserved exactly.
+  return new Date(Date.UTC(
     Number(year),
     Number(month) - 1,
     Number(day),
-    Number(hour) - 8,
+    Number(hour),
     Number(minute)
-  );
-
-  return new Date(utcTimestamp);
+  ));
 }
 
 export function getSingaporeTimeZone(): string {

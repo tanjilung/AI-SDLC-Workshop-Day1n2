@@ -84,7 +84,7 @@ export async function createTables(db: ReturnType<typeof drizzle>): Promise<void
       user_id VARCHAR(255) NOT NULL,
       title VARCHAR(255) NOT NULL,
       notes TEXT,
-      due_date DATE,
+      due_date TIMESTAMP,
       completed BOOLEAN DEFAULT FALSE,
       priority VARCHAR(20) DEFAULT 'medium',
       is_recurring BOOLEAN DEFAULT FALSE,
@@ -198,7 +198,7 @@ export async function createTodo(
                        is_recurring, recurrence_pattern, reminder_minutes, 
                        last_notification_sent, created_at, updated_at, completed_at)
     VALUES (${id}, ${todo.user_id}, ${todo.title}, ${todo.notes || null},
-            ${todo.due_date ? new Date(todo.due_date).toISOString().split('T')[0] : null},
+            ${todo.due_date ? new Date(todo.due_date).toISOString() : null},
             ${todo.completed}, ${todo.priority}, ${todo.is_recurring},
             ${todo.recurrence_pattern || null}, ${todo.reminder_minutes || null},
             ${todo.last_notification_sent ? new Date(todo.last_notification_sent).toISOString() : null},
@@ -253,7 +253,7 @@ export async function updateTodo(
     setExprs.push(sql`notes = ${updates.notes ?? null}`);
   }
   if (updates.due_date !== undefined) {
-    const mappedDueDate = updates.due_date ? new Date(updates.due_date).toISOString().split('T')[0] : null;
+    const mappedDueDate = updates.due_date ? new Date(updates.due_date).toISOString() : null;
     setExprs.push(sql`due_date = ${mappedDueDate}`);
   }
   if (updates.completed !== undefined) {
@@ -771,7 +771,7 @@ function mapTodoRow(row: any): Todo {
     user_id: row.user_id,
     title: row.title,
     notes: row.notes,
-    due_date: row.due_date ? (typeof row.due_date === 'string' ? row.due_date : new Date(row.due_date).toISOString().split('T')[0]) : null,
+    due_date: row.due_date ? (typeof row.due_date === 'string' ? row.due_date : new Date(row.due_date).toISOString()) : null,
     completed: row.completed,
     priority: row.priority as Priority,
     is_recurring: row.is_recurring,
@@ -860,17 +860,17 @@ function mapAuthenticatorRow(row: any): Authenticator {
 function calculateNextOccurrence(recurrencePattern: string, afterDate: Date): string | null {
   switch (recurrencePattern) {
     case 'daily':
-      return new Date(afterDate.getTime() + 86400000).toISOString().split('T')[0];
+      return new Date(afterDate.getTime() + 86400000).toISOString();
     case 'weekly':
-      return new Date(afterDate.getTime() + 7 * 86400000).toISOString().split('T')[0];
+      return new Date(afterDate.getTime() + 7 * 86400000).toISOString();
     case 'monthly':
       const nextMonth = new Date(afterDate);
       nextMonth.setMonth(nextMonth.getMonth() + 1);
-      return nextMonth.toISOString().split('T')[0];
+      return nextMonth.toISOString();
     case 'yearly':
       const nextYear = new Date(afterDate);
       nextYear.setFullYear(nextYear.getFullYear() + 1);
-      return nextYear.toISOString().split('T')[0];
+      return nextYear.toISOString();
     default:
       return null;
   }

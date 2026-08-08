@@ -5,7 +5,7 @@ import { calculateNextRecurringDueDate } from '@/lib/recurrence';
 import { validateTagIds } from '@/lib/tag-core';
 import { normalizeTemplateSubtasks } from '@/lib/template-core';
 import { validateTodoDueDate, validateTodoTitle, validateUpdatePriority } from '@/lib/todo-core';
-import { getSingaporeNow } from '@/lib/timezone';
+import { getSingaporeNow, parseSingaporeDateTimeLocal } from '@/lib/timezone';
 
 async function getTodoForRequest(todoId: string, userId: string) {
   return await getTodoDB().findByIdForUser(todoId, userId);
@@ -57,7 +57,17 @@ export async function PUT(
                 throw new Error('Completed must be a boolean');
               })();
 
-    const dueDate = validateTodoDueDate(body.due_date, getSingaporeNow(), true);
+    let dueDate: string | null | undefined;
+    if (body.due_date !== undefined) {
+      if (body.due_date === null || body.due_date === '') {
+        dueDate = null;
+      } else if (typeof body.due_date === 'string') {
+        const parsed = parseSingaporeDateTimeLocal(body.due_date);
+        dueDate = parsed.toISOString();
+      } else {
+        dueDate = validateTodoDueDate(body.due_date, getSingaporeNow(), true);
+      }
+    }
     const nextIsRecurring = body.is_recurring === undefined ? existing.is_recurring : body.is_recurring === true;
     const nextRecurrencePattern =
       body.recurrence_pattern === undefined

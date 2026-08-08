@@ -4,7 +4,7 @@ import { getDb, createTodo, getTodosByUserId, type Priority } from '@/lib/db';
 import { validateTagIds } from '@/lib/tag-core';
 import { normalizeTemplateSubtasks } from '@/lib/template-core';
 import { validateCreatePriority, validateTodoDueDate, validateTodoTitle } from '@/lib/todo-core';
-import { getSingaporeNow } from '@/lib/timezone';
+import { getSingaporeNow, parseSingaporeDateTimeLocal } from '@/lib/timezone';
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -35,7 +35,18 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = (await request.json()) as Record<string, unknown>;
-    const dueDate = validateTodoDueDate(body.due_date ?? null, getSingaporeNow());
+
+    let dueDate: string | null = null;
+    if (body.due_date !== undefined) {
+      if (body.due_date === null || body.due_date === '') {
+        dueDate = null;
+      } else if (typeof body.due_date === 'string') {
+        const parsed = parseSingaporeDateTimeLocal(body.due_date);
+        dueDate = parsed.toISOString();
+      } else {
+        dueDate = validateTodoDueDate(body.due_date, getSingaporeNow());
+      }
+    }
     const isRecurring = body.is_recurring === true;
     if (isRecurring && !dueDate) {
       throw new Error('Recurring todos require a due date');
