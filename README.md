@@ -213,7 +213,7 @@ Required variables:
 - `RP_ID` - relying party ID for WebAuthn (use your host name in production)
 - `RP_NAME` - display name shown during passkey registration
 - `RP_ORIGIN` - full origin for the current environment
-- `DATABASE_PATH` - SQLite file path (defaults to `./todos.db`)
+- `DATABASE_URL` - PostgreSQL connection string (e.g. postgres://user:pass@localhost:5432/todos)
 - `COOKIE_SECURE` - set to `"true"` only with valid HTTPS; use `"false"` for HTTP or self-signed certs (e.g. DuckDNS, local dev)
 
 You should see output like:
@@ -671,7 +671,9 @@ npx playwright show-report            # View results
 
 # Database
 npx tsx scripts/seed-holidays.ts      # Seed holidays
-sqlite3 todos.db                       # Inspect database
+# Inspect database (psql)
+psql "$DATABASE_URL" -c '\dt'     # list tables
+psql "$DATABASE_URL" -c 'SELECT * FROM todos LIMIT 5;'
 
 # Copilot
 Ctrl+Alt+I (Cmd+Alt+I)                # Open Copilot Chat

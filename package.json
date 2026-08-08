@@ -17,7 +17,6 @@
   "dependencies": {
     "@simplewebauthn/browser": "^13.2.2",
     "@simplewebauthn/server": "^13.2.2",
-    "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.2",
     "jose": "^5.9.0",
     "next": "16.0.0",

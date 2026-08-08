@@ -10,22 +10,25 @@ import {
   hasRecentReauthentication,
   verifySessionToken
 } from '../../lib/auth';
-import { createAuthenticatorDB, createDatabase, createUserDB } from '../../lib/db';
+import { getDb, createTables, closeDb, createUser, createAuthenticator, getUserByUsername, getAuthenticatorsByUserId } from '../../lib/db';
 
 const originalJwtSecret = process.env.JWT_SECRET;
-const originalDatabasePath = process.env.DATABASE_PATH;
+const originalDatabaseUrl = process.env.DATABASE_URL;
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'todo-auth-test-'));
-const tempDbPath = path.join(tempDir, 'todos.db');
+const testDatabaseUrl = process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/todos_test';
 
-before(() => {
+before(async () => {
   process.env.JWT_SECRET = 'unit-test-secret';
-  process.env.DATABASE_PATH = tempDbPath;
+  process.env.DATABASE_URL = testDatabaseUrl;
+  const db = getDb();
+  await createTables(db);
 });
 
 after(() => {
   process.env.JWT_SECRET = originalJwtSecret;
-  process.env.DATABASE_PATH = originalDatabasePath;
+  process.env.DATABASE_URL = originalDatabaseUrl;
   fs.rmSync(tempDir, { recursive: true, force: true });
+  try { closeDb(); } catch {}
 });
 
 test('session tokens round-trip', async () => {
@@ -65,26 +68,27 @@ test('recent reauthentication helper enforces a short enrollment window', () => 
   );
 });
 
-test('database-backed user and authenticator helpers work', () => {
-  const db = createDatabase(tempDbPath);
-  const userDB = createUserDB(db);
-  const authenticatorDB = createAuthenticatorDB(db);
+test('database-backed user and authenticator helpers work', async () => {
+  const db = getDb();
 
-  const user = userDB.create({ id: 'user-1', username: 'alice' });
-  authenticatorDB.create({
-    credentialId: 'cred-1',
-    userId: user.id,
-    publicKey: 'public-key'
-  });
+  // Create a user and an authenticator using new Postgres-backed API
+  const user = await createUser(db, { username: 'alice', password_hash: '' });
+  await createAuthenticator(db, { credential_id: 'cred-1', user_id: user.id, public_key: 'public-key', counter: 0 });
 
-  assert.equal(userDB.findByUsername('alice')?.id, user.id);
-  assert.equal(authenticatorDB.findByCredentialId('cred-1')?.counter, 0);
-  assert.equal(authenticatorDB.listByUserId(user.id).length, 1);
+  const fetchedUser = await getUserByUsername(db, 'alice');
+  const authenticators = await getAuthenticatorsByUserId(db, user.id);
 
-  const updated = authenticatorDB.updateCounter('cred-1', 12);
-  assert.equal(updated?.counter, 12);
+  assert.equal(fetchedUser?.id, user.id);
+  assert.equal(authenticators[0]?.counter, 0);
+  assert.equal(authenticators.length, 1);
 
-  authenticatorDB.deleteByCredentialId('cred-1');
-  assert.equal(authenticatorDB.findByCredentialId('cred-1'), undefined);
-  db.close();
+  // Update counter via direct SQL and verify
+  await db.execute(`UPDATE authenticators SET counter = 12 WHERE credential_id = 'cred-1'`);
+  const updatedAuthenticators = await getAuthenticatorsByUserId(db, user.id);
+  assert.equal(updatedAuthenticators[0]?.counter, 12);
+
+  // Delete authenticator
+  await db.execute(`DELETE FROM authenticators WHERE credential_id = 'cred-1'`);
+  const afterDelete = await getAuthenticatorsByUserId(db, user.id);
+  assert.equal(afterDelete.length, 0);
 });

@@ -1,4 +1,12 @@
+// Deprecated: better-sqlite3 is no longer used by this project. The application now uses PostgreSQL (pg + drizzle-orm) and expects DATABASE_URL.
+// If you still need SQLite support for local fallback, add a compatibility layer and reintroduce types as needed.
+
 declare module 'better-sqlite3' {
+  // Placeholder types removed. See project README for current database instructions.
+  const _default: any;
+  export default _default;
+}
+
   export interface Statement<T = unknown> {
     run(...params: unknown[]): { changes: number; lastInsertRowid: number };
     get(...params: unknown[]): T | undefined;

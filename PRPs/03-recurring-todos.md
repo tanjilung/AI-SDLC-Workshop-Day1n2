@@ -77,7 +77,7 @@ export interface Todo {
 
 ### Due Date Calculation
 
-All arithmetic operates on the Singapore-local representation of `due_date` (via `lib/timezone.ts`), preserving time-of-day, and applies month/year-end clamping since SQLite/JS date arithmetic does not do this automatically.
+All arithmetic operates on the Singapore-local representation of `due_date` (via `lib/timezone.ts`), preserving time-of-day, and applies month/year-end clamping since JS date arithmetic does not do this automatically.
 
 ```typescript
 // lib/recurrence.ts

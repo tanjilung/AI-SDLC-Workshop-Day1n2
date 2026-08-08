@@ -175,7 +175,7 @@ Recommended implementation order:
 
 All PRPs assume:
 - **Framework**: Next.js 16 (App Router)
-- **Database**: SQLite via better-sqlite3
+- **Database**: PostgreSQL using `pg` + `drizzle-orm` (server expects a DATABASE_URL)
 - **Auth**: WebAuthn via @simplewebauthn
 - **Timezone**: Singapore (Asia/Singapore) throughout
 - **Testing**: Playwright for E2E tests
@@ -186,7 +186,7 @@ All PRPs assume:
 1. **Always reference `.github/copilot-instructions.md`** first for project-wide patterns
 2. **Use Singapore timezone functions** from `lib/timezone.ts` for all date/time operations
 3. **Follow API route patterns** with async params in Next.js 16
-4. **Database operations are synchronous** (better-sqlite3, no async/await)
+4. **Database operations use `pg` + `drizzle-orm` and are asynchronous (use DATABASE_URL and run migrations with `npm run db:migrate`)**
 5. **Client components** in `app/page.tsx` handle UI, API routes handle DB
 
 ## 📝 Contributing

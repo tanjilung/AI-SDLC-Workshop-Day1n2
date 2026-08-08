@@ -199,36 +199,34 @@ export async function POST(request: NextRequest) {
 
 ### Database Layer (`lib/db.ts`)
 
-`todoDB.importAll` runs as a single `better-sqlite3` transaction so a failure partway through rolls back cleanly (no partial import):
+`todoDB.importAll` runs the entire import inside a single database transaction (see `lib/db.ts`). In Postgres this is implemented using the driver's transaction support so a failure partway through rolls back cleanly (no partial import). Pseudo-code (async):
 
 ```typescript
-importAll(userId: number, items: TodoExportItem[]): ImportResult {
+async function importAll(userId: string, items: TodoExportItem[]): Promise<ImportResult> {
   let tagsCreated = 0;
   let tagsReused = 0;
 
-  const run = db.transaction((items: TodoExportItem[]) => {
+  await db.transaction(async (tx) => {
     for (const item of items) {
-      const todoId = insertTodo.run({ ...item, user_id: userId }).lastInsertRowid as number;
+      const todoId = await tx.insertTodo(item, userId);
 
-      item.subtasks.forEach((s, i) => {
-        insertSubtask.run({ ...s, todo_id: todoId, position: s.position ?? i });
-      });
+      for (const [i, s] of item.subtasks.entries()) {
+        await tx.insertSubtask({ ...s, todo_id: todoId, position: s.position ?? i });
+      }
 
       for (const tag of item.tags) {
-        // case-insensitive match to avoid "Work" / "work" duplicates
-        const existing = findTagByNameCI.get(userId, tag.name) as { id: number } | undefined;
-        const tagId = existing
-          ? (tagsReused++, existing.id)
-          : (tagsCreated++, insertTag.run({ ...tag, user_id: userId }).lastInsertRowid as number);
-        linkTodoTag.run(todoId, tagId);
+        const existing = await tx.findTagByNameCI(userId, tag.name);
+        const tagId = existing ? (tagsReused++, existing.id) : (tagsCreated++, await tx.insertTag({ ...tag, user_id: userId }));
+        await tx.linkTodoTag(todoId, tagId);
       }
     }
   });
 
-  run(items);
   return { imported: items.length, tagsCreated, tagsReused };
 }
 ```
+
+Test file: `tests/11-export-import.spec.ts`.
 
 Test file: `tests/11-export-import.spec.ts`.
 

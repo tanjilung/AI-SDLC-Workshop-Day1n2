@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { before, after } from 'node:test';
 import { createAuthChallengeStore, createPendingRegistrationStore } from '../../lib/auth-challenges';
 import {
   createRegistrationOptions,
@@ -10,24 +10,21 @@ import {
   persistRegistrationAccount,
   verifyRegistration
 } from '../../lib/auth-webauthn';
-import { createDatabase, createUserDB, createAuthenticatorDB } from '../../lib/db';
+import { getDb, createTables, closeDb, createUser, createAuthenticator } from '../../lib/db';
 
-function makeTempDb() {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'todo-auth-webauthn-test-'));
-  return {
-    tempDir,
-    tempDbPath: path.join(tempDir, 'todos.db')
-  };
-}
+const originalDatabaseUrl = process.env.DATABASE_URL;
+const testDatabaseUrl = process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/todos_test';
 
-function cleanupTempDir(tempDir: string) {
-  fs.rmSync(tempDir, {
-    recursive: true,
-    force: true,
-    maxRetries: 5,
-    retryDelay: 100
-  });
-}
+before(async () => {
+  process.env.DATABASE_URL = testDatabaseUrl;
+  const db = getDb();
+  await createTables(db);
+});
+
+after(() => {
+  process.env.DATABASE_URL = originalDatabaseUrl;
+  try { closeDb(); } catch {}
+});
 
 test('auth challenge store saves, peeks, consumes, and expires challenges', () => {
   const store = createAuthChallengeStore(5);
@@ -38,204 +35,159 @@ test('auth challenge store saves, peeks, consumes, and expires challenges', () =
 });
 
 test('registration options reject duplicate usernames', async () => {
-  const { tempDir, tempDbPath } = makeTempDb();
-  const originalDatabasePath = process.env.DATABASE_PATH;
-  process.env.DATABASE_PATH = tempDbPath;
-  let db: ReturnType<typeof createDatabase> | null = null;
+  const db = getDb();
 
-  try {
-    db = createDatabase(tempDbPath);
-    const userDB = createUserDB(db);
-    userDB.create({ id: 'user-1', username: 'alice' });
+  // Insert a user with a known username
+  await db.execute(`INSERT INTO users (id, username, created_at, updated_at) VALUES ('user-1', 'alice', NOW(), NOW())`);
 
-    const result = await createRegistrationOptions(
-      'alice',
-      { rpId: 'localhost', rpName: 'Todo App', rpOrigin: 'http://localhost:3000' },
-      {
-        challengeStore: createAuthChallengeStore(),
-        userDB
-      }
-    );
+  const userDBWrapper = {
+    async findByUsername(username: string) { return (await db.execute(`SELECT * FROM users WHERE username = '${username}'`)).rows[0]; }
+  };
 
-    assert.equal('error' in result, true);
-    if ('error' in result) {
-      assert.equal(result.status, 409);
-      assert.equal(result.error, 'Username already taken');
+  const result = await createRegistrationOptions(
+    'alice',
+    { rpId: 'localhost', rpName: 'Todo App', rpOrigin: 'http://localhost:3000' },
+    {
+      challengeStore: createAuthChallengeStore(),
+      userDB: userDBWrapper as any
     }
-  } finally {
-    db?.close();
-    process.env.DATABASE_PATH = originalDatabasePath;
-    cleanupTempDir(tempDir);
+  );
+
+  assert.equal('error' in result, true);
+  if ('error' in result) {
+    assert.equal(result.status, 409);
+    assert.equal(result.error, 'Username already taken');
   }
 });
 
 test('registration options reserve a pending username', async () => {
-  const { tempDir, tempDbPath } = makeTempDb();
-  const originalDatabasePath = process.env.DATABASE_PATH;
-  process.env.DATABASE_PATH = tempDbPath;
+  const db = getDb();
+  const userDBWrapper = {
+    async findByUsername(username: string) { return null; }
+  };
+  const challengeStore = createAuthChallengeStore();
+  const pendingStore = createPendingRegistrationStore();
 
-  try {
-    const db = createDatabase(tempDbPath);
-    const userDB = createUserDB(db);
-    const challengeStore = createAuthChallengeStore();
-    const pendingStore = createPendingRegistrationStore();
+  const result = await createRegistrationOptions(
+    'bob',
+    { rpId: 'localhost', rpName: 'Todo App', rpOrigin: 'http://localhost:3000' },
+    {
+      challengeStore,
+      userDB: userDBWrapper as any,
+      registrationStore: pendingStore
+    }
+  );
 
-    const result = await createRegistrationOptions(
-      'bob',
-      { rpId: 'localhost', rpName: 'Todo App', rpOrigin: 'http://localhost:3000' },
-      {
-        challengeStore,
-        userDB,
-        registrationStore: pendingStore
-      }
-    );
-
-    assert.equal('options' in result, true);
-    const pending = pendingStore.peek('bob');
-    assert.ok(pending);
-    assert.equal(pending?.challenge, challengeStore.peek('register:bob'));
-    assert.ok(pending?.reservedUserId);
-
-    db.close();
-  } finally {
-    process.env.DATABASE_PATH = originalDatabasePath;
-    cleanupTempDir(tempDir);
-  }
+  assert.equal('options' in result, true);
+  const pending = pendingStore.peek('bob');
+  assert.ok(pending);
+  assert.equal(pending?.challenge, challengeStore.peek('register:bob'));
+  assert.ok(pending?.reservedUserId);
 });
 
 test('registration options reject duplicate in-progress reservations', async () => {
-  const { tempDir, tempDbPath } = makeTempDb();
-  const originalDatabasePath = process.env.DATABASE_PATH;
-  process.env.DATABASE_PATH = tempDbPath;
+  const db = getDb();
+  const userDBWrapper = { async findByUsername() { return null; } };
+  const challengeStore = createAuthChallengeStore();
+  const pendingStore = createPendingRegistrationStore();
 
-  try {
-    const db = createDatabase(tempDbPath);
-    const userDB = createUserDB(db);
-    const challengeStore = createAuthChallengeStore();
-    const pendingStore = createPendingRegistrationStore();
-
-    const firstResult = await createRegistrationOptions(
-      'carol',
-      { rpId: 'localhost', rpName: 'Todo App', rpOrigin: 'http://localhost:3000' },
-      {
-        challengeStore,
-        userDB,
-        registrationStore: pendingStore
-      }
-    );
-
-    assert.equal('options' in firstResult, true);
-    const firstPending = pendingStore.peek('carol');
-    assert.ok(firstPending);
-
-    const secondResult = await createRegistrationOptions(
-      'carol',
-      { rpId: 'localhost', rpName: 'Todo App', rpOrigin: 'http://localhost:3000' },
-      {
-        challengeStore,
-        userDB,
-        registrationStore: pendingStore
-      }
-    );
-
-    assert.equal('error' in secondResult, true);
-    if ('error' in secondResult) {
-      assert.equal(secondResult.status, 409);
-      assert.equal(secondResult.error, 'Registration already in progress');
+  const firstResult = await createRegistrationOptions(
+    'carol',
+    { rpId: 'localhost', rpName: 'Todo App', rpOrigin: 'http://localhost:3000' },
+    {
+      challengeStore,
+      userDB: userDBWrapper as any,
+      registrationStore: pendingStore
     }
-    assert.deepEqual(pendingStore.peek('carol'), firstPending);
+  );
 
-    db.close();
-  } finally {
-    process.env.DATABASE_PATH = originalDatabasePath;
-    cleanupTempDir(tempDir);
+  assert.equal('options' in firstResult, true);
+  const firstPending = pendingStore.peek('carol');
+  assert.ok(firstPending);
+
+  const secondResult = await createRegistrationOptions(
+    'carol',
+    { rpId: 'localhost', rpName: 'Todo App', rpOrigin: 'http://localhost:3000' },
+    {
+      challengeStore,
+      userDB: userDBWrapper as any,
+      registrationStore: pendingStore
+    }
+  );
+
+  assert.equal('error' in secondResult, true);
+  if ('error' in secondResult) {
+    assert.equal(secondResult.status, 409);
+    assert.equal(secondResult.error, 'Registration already in progress');
   }
+  assert.deepEqual(pendingStore.peek('carol'), firstPending);
 });
 
 test('registration options reject concurrent in-progress requests', async () => {
-  const { tempDir, tempDbPath } = makeTempDb();
-  const originalDatabasePath = process.env.DATABASE_PATH;
-  process.env.DATABASE_PATH = tempDbPath;
+  const db = getDb();
+  const userDBWrapper = { async findByUsername() { return null; } };
+  const challengeStore = createAuthChallengeStore();
+  const pendingStore = createPendingRegistrationStore();
 
-  try {
-    const db = createDatabase(tempDbPath);
-    const userDB = createUserDB(db);
-    const challengeStore = createAuthChallengeStore();
-    const pendingStore = createPendingRegistrationStore();
-
-    const results = await Promise.allSettled([
-      createRegistrationOptions(
-        'dave',
-        { rpId: 'localhost', rpName: 'Todo App', rpOrigin: 'http://localhost:3000' },
-        {
-          challengeStore,
-          userDB,
-          registrationStore: pendingStore
-        }
-      ),
-      createRegistrationOptions(
-        'dave',
-        { rpId: 'localhost', rpName: 'Todo App', rpOrigin: 'http://localhost:3000' },
-        {
-          challengeStore,
-          userDB,
-          registrationStore: pendingStore
-        }
-      )
-    ]);
-
-    const fulfilled = results.filter((result) => result.status === 'fulfilled');
-    assert.equal(fulfilled.length, 2);
-    const payloads = fulfilled.map((result) => result.value);
-    assert.ok(payloads.some((payload) => 'options' in payload));
-    assert.ok(payloads.some((payload) => 'error' in payload));
-
-    db.close();
-  } finally {
-    process.env.DATABASE_PATH = originalDatabasePath;
-    cleanupTempDir(tempDir);
-  }
-});
-
-test('registration options allow an authenticated user to add another passkey for the same account', async () => {
-  const { tempDir, tempDbPath } = makeTempDb();
-  const originalDatabasePath = process.env.DATABASE_PATH;
-  process.env.DATABASE_PATH = tempDbPath;
-  let db: ReturnType<typeof createDatabase> | null = null;
-
-  try {
-    db = createDatabase(tempDbPath);
-    const userDB = createUserDB(db);
-    const authenticatorDB = createAuthenticatorDB(db);
-    const challengeStore = createAuthChallengeStore();
-    const pendingStore = createPendingRegistrationStore();
-    const user = userDB.create({ id: 'user-1', username: 'alice' });
-
-    const result = await createRegistrationOptions(
-      'alice',
+  const results = await Promise.allSettled([
+    createRegistrationOptions(
+      'dave',
       { rpId: 'localhost', rpName: 'Todo App', rpOrigin: 'http://localhost:3000' },
       {
         challengeStore,
-        userDB,
-        registrationStore: pendingStore,
-        currentSession: {
-          userId: user.id,
-          username: user.username,
-          reauthenticatedAt: Date.now()
-        },
-        authenticatorStore: authenticatorDB
+        userDB: userDBWrapper as any,
+        registrationStore: pendingStore
       }
-    );
+    ),
+    createRegistrationOptions(
+      'dave',
+      { rpId: 'localhost', rpName: 'Todo App', rpOrigin: 'http://localhost:3000' },
+      {
+        challengeStore,
+        userDB: userDBWrapper as any,
+        registrationStore: pendingStore
+      }
+    )
+  ]);
 
-    assert.equal('options' in result, true);
-    const pending = pendingStore.peek('alice');
-    assert.equal(pending?.reservedUserId, user.id);
+  const fulfilled = results.filter((result) => result.status === 'fulfilled');
+  assert.equal(fulfilled.length, 2);
+  const payloads = fulfilled.map((result) => result.value);
+  assert.ok(payloads.some((payload) => 'options' in payload));
+  assert.ok(payloads.some((payload) => 'error' in payload));
+});
 
-  } finally {
-    db?.close();
-    process.env.DATABASE_PATH = originalDatabasePath;
-    cleanupTempDir(tempDir);
-  }
+test('registration options allow an authenticated user to add another passkey for the same account', async () => {
+  const db = getDb();
+  const challengeStore = createAuthChallengeStore();
+  const pendingStore = createPendingRegistrationStore();
+
+  // Insert a user with known id so we can assert reservedUserId matches
+  await db.execute(`INSERT INTO users (id, username, created_at, updated_at) VALUES ('user-1', 'alice', NOW(), NOW())`);
+
+  const user = { id: 'user-1', username: 'alice' };
+
+  const result = await createRegistrationOptions(
+    'alice',
+    { rpId: 'localhost', rpName: 'Todo App', rpOrigin: 'http://localhost:3000' },
+    {
+      challengeStore,
+      userDB: { async findByUsername() { return user; } } as any,
+      registrationStore: pendingStore,
+      currentSession: {
+        userId: user.id,
+        username: user.username,
+        reauthenticatedAt: Date.now()
+      },
+      authenticatorStore: {
+        async listByUserId() { return []; }
+      } as any
+    }
+  );
+
+  assert.equal('options' in result, true);
+  const pending = pendingStore.peek('alice');
+  assert.equal(pending?.reservedUserId, user.id);
 });
 
 test('registration options reject adding a passkey for another user account', async () => {

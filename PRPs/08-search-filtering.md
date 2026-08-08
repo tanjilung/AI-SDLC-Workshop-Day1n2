@@ -64,24 +64,24 @@ No new tables or endpoints. Consumes `Todo[]` as already returned by `GET /api/t
 export type Priority = 'high' | 'medium' | 'low';
 
 export interface Tag {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   name: string;
   color: string;
   created_at: string;
 }
 
 export interface Subtask {
-  id: number;
-  todo_id: number;
+  id: string;
+  todo_id: string;
   title: string;
   completed: boolean;
   position: number;
 }
 
 export interface Todo {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   title: string;
   completed: boolean;
   due_date: string | null; // ISO string, Singapore local time
@@ -98,7 +98,7 @@ export interface Todo {
 export interface FilterState {
   search: string;                 // raw (non-debounced) input value
   priority: Priority | 'all';
-  tagId: number | 'all';
+  tagId: string | 'all';
   completion: 'all' | 'incomplete' | 'completed';
   dueDateFrom: string | null;     // 'YYYY-MM-DD'
   dueDateTo: string | null;       // 'YYYY-MM-DD'
@@ -434,7 +434,7 @@ Test file: `tests/10-search-filtering.spec.ts`. Use the shared `tests/helpers.ts
 
 ## Out of Scope
 
-- Server-side or full-text search (e.g. SQLite FTS5) — all matching is client-side substring matching.
+- Server-side or full-text search (e.g. Postgres full-text search) — currently all matching is client-side substring matching.
 - Fuzzy or typo-tolerant search (e.g. Levenshtein distance, "did you mean").
 - Cross-user or shared/synced saved filter presets — presets are local to one browser.
 - Search history or query suggestions/autocomplete.

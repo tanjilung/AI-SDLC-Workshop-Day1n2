@@ -571,10 +571,11 @@ Create `vercel.json`:
 - [ ] Performance acceptable
 
 ### Vercel-Specific Notes
-⚠️ **SQLite Limitation**: Vercel uses serverless functions. SQLite database will reset on each deployment. Consider:
+
+⚠️ **Database Recommendation**: Vercel serverless functions are not suited for file-backed databases. Use a managed external Postgres database for production (Vercel Postgres, Supabase, Railway PostgreSQL, etc.). Consider:
 - [ ] Use Vercel Postgres for persistent storage
-- [ ] Or migrate to Railway for persistent SQLite
-- [ ] Or use external database (Supabase, PlanetScale)
+- [ ] Or use an external managed Postgres (Railway, Supabase, DigitalOcean Managed DB)
+- [ ] Ensure `DATABASE_URL` is set in Vercel environment variables
 
 ---
 
@@ -699,37 +700,33 @@ cmd = "npm start"
 
 ### Railway-Specific Configuration
 
-#### Persistent SQLite Database
+#### Persistent Postgres Database
 Railway supports persistent volumes:
 
 ```bash
-# Create volume for database
-railway volume create
-
-# Mount volume (add to railway.json)
+# Provision a managed Postgres database on Railway
+railway addon create postgresql
+# The command will output a DATABASE_URL — add it to project variables
 ```
 
 Or via Dashboard:
-- [ ] Go to project → Volumes
-- [ ] Create new volume
-- [ ] Mount path: `/app/data`
-- [ ] Update database path in `lib/db.ts`:
-  ```typescript
-  const dbPath = path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH || process.cwd(), 'todos.db');
-  ```
+- [ ] Go to project → Plugins/Addons → PostgreSQL
+- [ ] Provision a new Postgres database
+- [ ] Copy the `DATABASE_URL` and add it to project variables
+- [ ] Ensure the app's `DATABASE_URL` is set in Railway environment variables
 
 ### Railway vs Vercel Comparison
 
 | Feature | Vercel | Railway |
 |---------|--------|---------|
-| **SQLite Persistence** | ❌ Resets on deploy | ✅ With volumes |
+| **Postgres Persistence** | ✅ Managed Postgres | ✅ Managed Postgres |
 | **Deployment Speed** | ⚡ Very fast | ⚡ Fast |
 | **Auto HTTPS** | ✅ Yes | ✅ Yes |
 | **Custom Domains** | ✅ Free | ✅ Free |
 | **Pricing** | Free tier generous | Free tier available |
 | **Best For** | Static/Serverless | Full-stack apps |
 
-**Recommendation**: Use **Railway** for this app due to SQLite persistence requirement.
+**Recommendation**: Use a managed PostgreSQL database (Railway, Vercel Postgres, Supabase) for production and set `DATABASE_URL` accordingly.
 
 ---
 

@@ -10,7 +10,7 @@ Core create, read, update, and delete functionality for todos, including Singapo
 
 ## Feature Overview
 
-Todos are the core entity of the application. A todo has a required title, an optional Singapore-timezone due date/time, and a completion state. Todos are always scoped to the authenticated user (`session.userId`), automatically sorted, and organized into three sections in the UI: **Overdue**, **Pending**, and **Completed**. All create/update/delete operations happen through REST-style Next.js API routes backed by `better-sqlite3`, with the client (`app/page.tsx`) applying optimistic UI updates for responsiveness.
+Todos are the core entity of the application. A todo has a required title, an optional Singapore-timezone due date/time, and a completion state. Todos are always scoped to the authenticated user (`session.userId`), automatically sorted, and organized into three sections in the UI: **Overdue**, **Pending**, and **Completed**. All create/update/delete operations happen through REST-style Next.js API routes backed by PostgreSQL (pg + drizzle-orm), with the client (`app/page.tsx`) applying optimistic UI updates for responsiveness.
 
 ## User Stories
 
@@ -38,26 +38,29 @@ Todos are the core entity of the application. A todo has a required title, an op
 ### Database Schema
 
 ```sql
+-- Postgres schema (see lib/db.ts for canonical schema and migrations)
 CREATE TABLE todos (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  completed INTEGER NOT NULL DEFAULT 0,
-  due_date TEXT,                              -- ISO 8601, Singapore local time, nullable
-  priority TEXT NOT NULL DEFAULT 'medium',    -- 'high' | 'medium' | 'low' (see PRP 02)
-  is_recurring INTEGER NOT NULL DEFAULT 0,    -- see PRP 03
-  recurrence_pattern TEXT,                    -- see PRP 03
-  reminder_minutes INTEGER,                   -- see PRP 04
-  last_notification_sent TEXT,                -- see PRP 04
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT
+  id VARCHAR(255) PRIMARY KEY,
+  user_id VARCHAR(255) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  notes TEXT,
+  due_date TIMESTAMP WITH TIME ZONE,
+  completed BOOLEAN DEFAULT FALSE,
+  priority VARCHAR(20) DEFAULT 'medium',
+  is_recurring BOOLEAN DEFAULT FALSE,
+  recurrence_pattern VARCHAR(20),
+  reminder_minutes INTEGER,
+  last_notification_sent TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  completed_at TIMESTAMP
 );
 
 CREATE INDEX idx_todos_user_id ON todos(user_id);
 CREATE INDEX idx_todos_due_date ON todos(due_date);
 ```
 
-`subtasks` (PRP 05) and `tags`/`todo_tags` (PRP 06) both declare `ON DELETE CASCADE` foreign keys back to `todos.id`, so deleting a todo removes its subtasks and tag associations automatically — no application-level cleanup code needed as long as SQLite foreign keys are enabled (`PRAGMA foreign_keys = ON` at connection init in `lib/db.ts`).
+`subtasks` (PRP 05) and `tags`/`todo_tags` (PRP 06) both declare `ON DELETE CASCADE` foreign keys back to `todos.id`, so deleting a todo removes its subtasks and tag associations automatically. In Postgres this is enforced by the database; ensure your migrations declare the foreign keys (see `lib/db.ts`).
 
 ### Types (`lib/db.ts`)
 
@@ -66,9 +69,10 @@ export type Priority = 'high' | 'medium' | 'low';
 export type RecurrencePattern = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
 export interface Todo {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   title: string;
+  notes?: string | null;
   completed: boolean;
   due_date: string | null;
   priority: Priority;

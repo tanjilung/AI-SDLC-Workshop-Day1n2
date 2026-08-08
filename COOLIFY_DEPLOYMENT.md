@@ -59,7 +59,6 @@ Any PostgreSQL 15+ instance works. Copy the connection URL from your provider.
    RP_ID=<your-domain.com>
    RP_NAME=Todo App
    RP_ORIGIN=https://<your-domain.com>
-   DATABASE_PATH=./todos.db
    ```
 
    **Important notes:**
@@ -98,7 +97,6 @@ Any PostgreSQL 15+ instance works. Copy the connection URL from your provider.
 | Variable | Required | Description | Example |
 |---|---|---|---|
 | `DATABASE_URL` | Yes | PostgreSQL connection string | `postgresql://user:pass@host:5432/db` |
-| `DATABASE_PATH` | No | SQLite fallback path (local dev) | `./todos.db` |
 | `JWT_SECRET` | Yes | Secret for session signing | 64-char hex string |
 | `RP_ID` | Yes | WebAuthn Realm ID (domain) | `todo.yourdomain.com` |
 | `RP_NAME` | No | Display name for WebAuthn | `Todo App` |

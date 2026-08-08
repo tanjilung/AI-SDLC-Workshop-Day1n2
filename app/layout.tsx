@@ -4,7 +4,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Todo App',
-  description: 'A passwordless todo app with Next.js, SQLite, and WebAuthn.'
+  description: 'A passwordless todo app with Next.js, PostgreSQL, and WebAuthn.'
 };
 
 export default function RootLayout({

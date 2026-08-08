@@ -2,12 +2,12 @@
 
 ## Architecture Overview
 
-This is a **Next.js 16** todo application with WebAuthn authentication, using **better-sqlite3** for data persistence and **Playwright** for E2E testing. All operations use **Singapore timezone** (`Asia/Singapore`).
+This is a **Next.js 16** todo application with WebAuthn authentication, using **PostgreSQL** (pg + drizzle-orm) for data persistence and **Playwright** for E2E testing. All operations use **Singapore timezone** (`Asia/Singapore`).
 
 ### Core Stack
 - **Frontend**: Next.js App Router, React 19, Tailwind CSS 4
 - **Backend**: Next.js API routes (no separate server)
-- **Database**: SQLite via `better-sqlite3` (`todos.db` in project root)
+- **Database**: PostgreSQL using `pg` + `drizzle-orm` (server expects a DATABASE_URL environment variable)
 - **Auth**: WebAuthn/Passkeys with JWT sessions (no passwords)
 - **Testing**: Playwright E2E tests
 
@@ -34,7 +34,7 @@ This is a **Next.js 16** todo application with WebAuthn authentication, using **
 ### 2. Database Architecture
 **Single source of truth**: `lib/db.ts` exports all database interfaces and CRUD operations (~700 lines).
 
-**Technology:** `better-sqlite3` - synchronous SQLite library (no async/await needed for DB operations). Database file: `todos.db` in project root.
+**Technology:** `pg` (node-postgres) and `drizzle-orm` for SQL/DB access. The app uses a DATABASE_URL connection string (Postgres). Use the migration script `npm run db:migrate` to create/verify tables.
 
 Key tables:
 - `users` → `authenticators` (one-to-many)
@@ -106,8 +106,10 @@ npx playwright show-report            # View HTML report
 # Seed Singapore holidays
 npx tsx scripts/seed-holidays.ts
 
-# Inspect database (SQLite CLI)
-sqlite3 todos.db
+# Inspect database (psql)
+psql "$DATABASE_URL" -c '\dt'  # list tables
+psql "$DATABASE_URL" -c 'SELECT * FROM todos LIMIT 5;'
+
 ```
 
 ## Project-Specific Conventions

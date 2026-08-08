@@ -38,30 +38,33 @@ This feature turns the todo list from a flat task list into a lightweight projec
 This PRP owns the `subtasks` table:
 
 ```sql
+-- Postgres schema (see lib/db.ts for canonical schema and migrations)
 CREATE TABLE subtasks (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  todo_id INTEGER NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  completed INTEGER NOT NULL DEFAULT 0,
-  position INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  id VARCHAR(255) PRIMARY KEY,
+  todo_id VARCHAR(255) NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+  title VARCHAR(255) NOT NULL,
+  completed BOOLEAN DEFAULT FALSE,
+  position INTEGER NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE INDEX idx_subtasks_todo_id ON subtasks(todo_id);
 ```
 
-> **Gotcha:** `better-sqlite3` does not enforce `ON DELETE CASCADE` unless foreign keys are turned on explicitly. Run `db.pragma('foreign_keys = ON')` once when the database connection is initialized in `lib/db.ts`. If this pragma is ever omitted, deleting a todo will silently leave orphaned `subtasks` rows — cascade delete must then be handled manually inside a transaction (`db.transaction(...)`) that deletes subtasks before the parent todo. Prefer the pragma; treat the manual-transaction path as a fallback only.
+> **Note:** Postgres enforces `ON DELETE CASCADE` when the foreign key is declared. Ensure your migrations declare the foreign keys (see `lib/db.ts`) so deleting a todo automatically removes its subtasks and related rows.
 
 ### Types (`lib/db.ts`)
 
 ```typescript
 export interface Subtask {
-  id: number;
-  todo_id: number;
+  id: string;
+  todo_id: string;
   title: string;
   completed: boolean;
   position: number;
   created_at: string;
+  updated_at?: string | null;
 }
 
 export interface CreateSubtaskDto {
@@ -78,10 +81,10 @@ export interface UpdateSubtaskDto {
 
 ```typescript
 export const subtaskDB = {
-  findByTodoId(todoId: number): Subtask[] { /* ORDER BY position ASC */ },
-  create(todoId: number, data: CreateSubtaskDto): Subtask { /* position = MAX(position)+1 */ },
-  update(id: number, data: UpdateSubtaskDto): Subtask,
-  delete(id: number): void,
+  findByTodoId(todoId: string): Subtask[] { /* ORDER BY position ASC */ },
+  create(todoId: string, data: CreateSubtaskDto): Subtask { /* position = MAX(position)+1 */ },
+  update(id: string, data: UpdateSubtaskDto): Subtask,
+  delete(id: string): void,
 };
 ```
 
@@ -193,7 +196,7 @@ function ProgressBar({ completed, total, percent }: { completed: number; total: 
 }
 
 function SubtaskList({ todoId, subtasks, onChange }: {
-  todoId: number;
+  todoId: string;
   subtasks: Subtask[];
   onChange: () => void; // re-fetch/re-render parent todo after any mutation
 }) {
@@ -222,7 +225,7 @@ function SubtaskList({ todoId, subtasks, onChange }: {
     onChange();
   };
 
-  const deleteSubtask = async (id: number) => {
+    const deleteSubtask = async (id: string) => {
     await fetch(`/api/subtasks/${id}`, { method: 'DELETE' });
     onChange();
   };

@@ -22,7 +22,7 @@ export default defineConfig({
       RP_ID: 'localhost',
       RP_NAME: 'Todo App',
       RP_ORIGIN: 'http://localhost:3000',
-      DATABASE_PATH: '.playwright/todos-e2e.db'
+      DATABASE_URL: process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/todos_e2e'
     },
     timeout: 120000
   },
