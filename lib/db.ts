@@ -346,7 +346,7 @@ export async function removeTagFromTodo(
   todoId: string,
   tagId: string
 ): Promise<void> {
-  await db.delete(schema.todoTags).where(eq(schema.todoTags.todoId, todoId)).where(eq(schema.todoTags.tagId, tagId));
+  await db.execute(sql`DELETE FROM todo_tags WHERE todo_id = ${todoId} AND tag_id = ${tagId}`);
 }
 
 export async function getTagsForTodo(
@@ -541,11 +541,8 @@ export async function getHolidaysBetween(
 ): Promise<Holiday[]> {
   const startStr = startDate.toISOString().split('T')[0];
   const endStr = endDate.toISOString().split('T')[0];
-  const rows = await db
-    .select()
-    .from(schema.holidays)
-    .where(gte(schema.holidays.date, startStr) as any)
-    .where(lte(schema.holidays.date, endStr) as any);
+  const res = await db.execute(sql`SELECT * FROM holidays WHERE date >= ${startStr} AND date <= ${endStr}`);
+  const rows = res.rows;
   const mapped = rows.map((r: any) => mapHolidayRow(r));
   mapped.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   return mapped;
