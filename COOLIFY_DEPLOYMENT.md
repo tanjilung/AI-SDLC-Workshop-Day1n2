@@ -14,7 +14,7 @@ Ensure your code is pushed to a Git remote:
 
 ```bash
 git add .
-git commit -m "Add Dockerfile for Coolify deployment"
+git commit -m "Update deployment configuration"
 git push
 ```
 
@@ -135,9 +135,18 @@ Any PostgreSQL 15+ instance works. Copy the connection URL from your provider.
 
 ## Database Migrations
 
-This app uses Drizzle ORM with `CREATE TABLE IF NOT EXISTS` — tables are auto-created on first access. No manual migration step is required.
+This app uses Drizzle ORM with `CREATE TABLE IF NOT EXISTS` — tables are auto-created on first access. Additionally, a migration script is included to verify/initialize tables explicitly:
+
+```bash
+npm run db:migrate
+```
+
+### How it works
+
+- **`lib/db.ts`** configures the PostgreSQL pool with `ssl: false` for internal Docker connections (required when connecting between Coolify services).
+- **`nixpacks.toml`** runs `npm run db:migrate` before starting Next.js, ensuring tables exist on first deploy.
 
 If you need to reset the database:
 1. Delete the database in Coolify.
 2. Create a new one and update `DATABASE_URL`.
-3. Redeploy the app.
+3. Redeploy the app — migrations will recreate tables automatically.

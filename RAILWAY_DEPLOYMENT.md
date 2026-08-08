@@ -58,11 +58,24 @@ The GitHub Action will:
 The `nixpacks.toml` file configures how Railway builds your app:
 
 ```toml
+[phases.setup]
+nixPkgs = ["...", "python3", "gcc", "gnumake"]
+
+[phases.install]
+command = "npm install --include=dev"
+
 [phases.build]
+command = "npm run build"
 cacheDirectories = [".next/cache", "node_modules/.cache"]
+
+[start]
+cmd = "npm run db:migrate && next start"
 ```
 
-This tells Nixpacks (Railway's build system) which directories to cache for faster subsequent builds.
+This tells Nixpacks (Railway's build system):
+- **`phases.install`** — installs all dependencies (including devDependencies for building)
+- **`phases.build`** — builds the Next.js app with cached `.next` directory
+- **`start`** — runs database migrations before starting the server
 
 ## Database Configuration
 
