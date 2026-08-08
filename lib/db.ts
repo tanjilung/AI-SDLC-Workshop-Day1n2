@@ -733,7 +733,8 @@ export async function importTodos(
 
   // Create or reuse tags
   for (const tag of tags) {
-    const existing = await db.select().from(schema.tags).where(eq(schema.tags.userId, userId) as any).where(eq(schema.tags.name, tag.name) as any);
+    const res = await db.execute(sql`SELECT * FROM tags WHERE user_id = ${userId} AND name = ${tag.name}`);
+    const existing = res.rows;
     if (existing.length > 0) {
       tagsReused++;
     } else {
