@@ -1,0 +1,8 @@
+[provider]
+image = "node"
+
+[nixpacks]
+nixPkgs = ["python3", "gcc", "gnumake", "pkg-config", "openssl", "libjpeg-turbo", "libwebp", "libpng", "zlib", "libuv"]
+
+[start]
+cmd = "next start"
