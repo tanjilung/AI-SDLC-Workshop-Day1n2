@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { getTodoDB, type Priority } from '@/lib/db';
+import { getDb, createTodo, getTodosByUserId, type Priority } from '@/lib/db';
 import { validateTagIds } from '@/lib/tag-core';
 import { normalizeTemplateSubtasks } from '@/lib/template-core';
 import { validateCreatePriority, validateTodoDueDate, validateTodoTitle } from '@/lib/todo-core';
@@ -12,10 +12,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  const priorityFilter = request.nextUrl.searchParams.get('priority');
-  const todoDB = getTodoDB();
-  const todos = todoDB.findAllByUser(session.userId);
+  const db = getDb();
+  const todos = await getTodosByUserId(db, session.userId);
 
+  const priorityFilter = request.nextUrl.searchParams.get('priority');
   if (!priorityFilter) {
     return NextResponse.json(todos);
   }
@@ -41,27 +41,25 @@ export async function POST(request: NextRequest) {
       throw new Error('Recurring todos require a due date');
     }
 
-    const todoDB = getTodoDB();
-    const todo = todoDB.create({
+    const db = getDb();
+    const todo = await createTodo(db, {
       user_id: session.userId,
       title: validateTodoTitle(body.title),
       notes: body.notes === undefined ? null : body.notes === null ? null : String(body.notes),
       due_date: dueDate,
+      completed: false,
       priority: validateCreatePriority(body.priority),
       is_recurring: isRecurring,
       recurrence_pattern:
         body.recurrence_pattern === undefined || body.recurrence_pattern === null
           ? null
-          : String(body.recurrence_pattern) as never,
+          : String(body.recurrence_pattern) as 'daily' | 'weekly' | 'monthly' | 'yearly' | null,
       reminder_minutes:
         body.reminder_minutes === undefined || body.reminder_minutes === null
           ? null
           : Number(body.reminder_minutes),
-      tag_ids: validateTagIds(body.tag_ids),
-      subtasks: normalizeTemplateSubtasks(body.subtasks).map((subtask) => ({
-        ...subtask,
-        completed: false
-      }))
+      last_notification_sent: null,
+      completed_at: null,
     });
 
     return NextResponse.json(todo, { status: 201 });

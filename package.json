@@ -14,11 +14,12 @@
     "seed:holidays": "tsx scripts/seed-holidays.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^12.0.0",
     "@simplewebauthn/browser": "^13.2.2",
     "@simplewebauthn/server": "^13.2.2",
-    "next": "16.0.0",
+    "drizzle-orm": "^0.45.2",
     "jose": "^5.9.0",
+    "next": "16.0.0",
+    "pg": "^8.22.0",
     "react": "19.0.0",
     "react-dom": "19.0.0"
   },
@@ -26,6 +27,7 @@
     "@playwright/test": "^1.55.0",
     "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.21.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.0.0",

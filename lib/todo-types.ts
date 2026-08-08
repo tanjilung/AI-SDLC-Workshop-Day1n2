@@ -108,3 +108,20 @@ export interface ImportResult {
   tagsCreated: number;
   tagsReused: number;
 }
+
+export interface User {
+  id: string;
+  username: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Authenticator {
+  credential_id: string;
+  user_id: string;
+  public_key: string;
+  counter: number;
+  transports: string | null;
+  created_at: string;
+  updated_at: string;
+}
