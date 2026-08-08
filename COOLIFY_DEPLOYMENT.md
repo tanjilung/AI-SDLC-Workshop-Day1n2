@@ -46,8 +46,8 @@ Any PostgreSQL 15+ instance works. Copy the connection URL from your provider.
 
    | Setting | Value |
    |---|---|
-   | **Build Pack** | `Nixpacks` or `Dockerfile` |
-   | **Node.js Version** | `20` |
+   | **Build Pack** | `Dockerfile` (only option) |
+   | **Node.js Version** | `22` |
    | **Start Command** | (leave blank — uses Dockerfile CMD) |
 
 5. Under **Environment Variables**, add the following:
@@ -144,7 +144,7 @@ npm run db:migrate
 ### How it works
 
 - **`lib/db.ts`** configures the PostgreSQL pool with `ssl: false` for internal Docker connections (required when connecting between Coolify services).
-- **`nixpacks.toml`** runs `npm run db:migrate` before starting Next.js, ensuring tables exist on first deploy.
+- **`Dockerfile`** runs `npm run db:migrate` before starting Next.js, ensuring tables exist on first deploy.
 
 If you need to reset the database:
 1. Delete the database in Coolify.
