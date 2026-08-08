@@ -13,7 +13,7 @@ export async function POST(
   }
 
   const { id } = await params;
-  const template = getTemplateDB().findById(id, session.userId);
+  const template = await getTemplateDB().findById(id, session.userId);
   if (!template) {
     return NextResponse.json({ error: 'Template not found' }, { status: 404 });
   }
@@ -23,14 +23,18 @@ export async function POST(
       ? null
       : new Date(getSingaporeNow().getTime() + template.due_date_offset_minutes * 60_000).toISOString();
 
-  const todo = getTodoDB().create({
+  const todo = await getTodoDB().create({
     user_id: session.userId,
     title: template.title_template,
     priority: template.priority,
     due_date: dueDate,
+    notes: null,
+    completed: false,
     is_recurring: template.is_recurring,
     recurrence_pattern: template.recurrence_pattern,
-    reminder_minutes: template.reminder_minutes
+    reminder_minutes: template.reminder_minutes,
+    last_notification_sent: null,
+    completed_at: null
   });
 
   let subtasks: Array<{ title: string; position: number }> = [];
@@ -52,13 +56,14 @@ export async function POST(
   }
 
   const subtaskDB = getSubtaskDB();
-  subtasks.forEach((subtask) => {
+  await Promise.all(subtasks.map((subtask, index) =>
     subtaskDB.create({
       todo_id: todo.id,
       title: subtask.title,
-      position: subtask.position
-    });
-  });
+      completed: false,
+      position: typeof subtask.position === 'number' ? subtask.position : index
+    })
+  ));
 
   return NextResponse.json(getTodoDB().findByIdForUser(todo.id, session.userId), { status: 201 });
 }

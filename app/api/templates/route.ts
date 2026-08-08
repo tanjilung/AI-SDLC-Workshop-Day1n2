@@ -29,8 +29,8 @@ export async function POST(request: NextRequest) {
     const template = getTemplateDB().create({
       user_id: session.userId,
       name: validateTemplateName(body.name) as string,
-      description: validateOptionalText(body.description),
-      category: validateOptionalText(body.category),
+      description: validateOptionalText(body.description) ?? null,
+      category: validateOptionalText(body.category) ?? null,
       title_template: validateTemplateName(body.title_template) as string,
       priority: validateCreatePriority(body.priority),
       is_recurring: body.is_recurring === true,
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
         body.reminder_minutes === undefined || body.reminder_minutes === null || body.reminder_minutes === ''
           ? null
           : Number(body.reminder_minutes),
-      due_date_offset_minutes: validateOffsetMinutes(body.due_date_offset_minutes),
+      due_date_offset_minutes: validateOffsetMinutes(body.due_date_offset_minutes) ?? null,
       subtasks_json: JSON.stringify(normalizeTemplateSubtasks(body.subtasks))
     });
 

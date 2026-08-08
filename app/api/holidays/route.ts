@@ -23,5 +23,5 @@ export async function GET(request: NextRequest) {
   }
 
   const bounds = getMonthBounds(year, month);
-  return NextResponse.json({ holidays: getHolidayDB().findByRange(bounds.startDate, bounds.endDate) });
+  return NextResponse.json({ holidays: getHolidayDB().findByRange(new Date(bounds.startDate), new Date(bounds.endDate)) });
 }

@@ -12,7 +12,7 @@ export async function GET() {
 
   const now = getSingaporeNow();
   const todoDB = getTodoDB();
-  const dueTodos = filterDueNotificationTodos(todoDB.findAllByUser(session.userId), now);
+  const dueTodos = filterDueNotificationTodos(await todoDB.findAllByUser(session.userId), now);
   const sentAt = now.toISOString();
 
   dueTodos.forEach((todo) => {

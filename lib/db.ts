@@ -926,7 +926,7 @@ interface TodoFacade {
 }
 
 interface TagFacade {
-  create(userId: string, data: Omit<Tag, 'id' | 'created_at' | 'updated_at'>): Promise<Tag>;
+  create(userId: string, data: Omit<Tag, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<Tag>;
   findAllByUser(userId: string): Promise<Tag[]>;
   findById(id: string, userId: string): Promise<Tag | null>;
   update(id: string, userId: string, updates: Partial<Pick<Tag, 'name' | 'color'>>): Promise<Tag>;
