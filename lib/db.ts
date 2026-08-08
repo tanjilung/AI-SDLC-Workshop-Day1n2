@@ -1137,21 +1137,19 @@ function createTemplateFacade(): TemplateFacade {
       return getTemplatesByUserId(db, userId);
     },
     async findById(id, userId) {
-      const rows = await db
-        .select()
-        .from(schema.templates)
-        .where(eq(schema.templates.id, id))
-        .where(eq(schema.templates.userId, userId))
-        .limit(1);
+      const q9 = (db.select().from(schema.templates)) as any;
+      const rows = await q9.where(eq(schema.templates.id, id)).where(eq(schema.templates.userId, userId)).limit(1);
       return rows[0] ? mapTemplateRow(rows[0]) : null;
     },
     async update(id, userId, updates) {
-      const existing = await db.select().from(schema.templates).where(eq(schema.templates.id, id)).where(eq(schema.templates.userId, userId)).limit(1);
+      const q10 = db.select().from(schema.templates) as any;
+      const existing = await q10.where(eq(schema.templates.id, id)).where(eq(schema.templates.userId, userId)).limit(1);
       if (!existing.length) throw new Error('Template not found');
       return updateTemplate(db, id, updates);
     },
     async delete(id, userId) {
-      const existing = await db.select().from(schema.templates).where(eq(schema.templates.id, id)).where(eq(schema.templates.userId, userId)).limit(1);
+      const q11 = db.select().from(schema.templates) as any;
+      const existing = await q11.where(eq(schema.templates.id, id)).where(eq(schema.templates.userId, userId)).limit(1);
       if (!existing.length) return false;
       await deleteTemplate(db, id);
       return true;
