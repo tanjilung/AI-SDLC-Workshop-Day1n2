@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
-import { sql } from 'drizzle-orm';
+import { sql, eq } from 'drizzle-orm';
+import * as schema from './db-schema';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -322,7 +323,7 @@ export async function verifyLogin(
   const db = getDb();
 
   try {
-    await db.execute(sql`UPDATE authenticators SET counter = ${newCounter} WHERE credential_id = ${authenticator.credential_id}`);
+    await db.update(schema.authenticators).set({ counter: newCounter }).where(eq(schema.authenticators.credentialId, authenticator.credential_id)).run();
   } catch {
     // Counter update failure is non-fatal
   }

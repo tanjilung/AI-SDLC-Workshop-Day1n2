@@ -1,6 +1,7 @@
-import { sql } from 'drizzle-orm';
+import { sql, eq, gte, lte } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import pg, { Pool } from 'pg';
+import * as schema from './db-schema';
 import type {
   CalendarDay,
   Holiday,
@@ -192,39 +193,68 @@ export async function createTodo(
   todo: Omit<Todo, 'id' | 'created_at' | 'updated_at'>
 ): Promise<Todo> {
   const id = crypto.randomUUID();
-  const now = new Date().toISOString();
-  await db.execute(sql`
-    INSERT INTO todos (id, user_id, title, notes, due_date, completed, priority, 
-                       is_recurring, recurrence_pattern, reminder_minutes, 
-                       last_notification_sent, created_at, updated_at, completed_at)
-    VALUES (${id}, ${todo.user_id}, ${todo.title}, ${todo.notes || null},
-            ${todo.due_date ? new Date(todo.due_date).toISOString() : null},
-            ${todo.completed}, ${todo.priority}, ${todo.is_recurring},
-            ${todo.recurrence_pattern || null}, ${todo.reminder_minutes || null},
-            ${todo.last_notification_sent ? new Date(todo.last_notification_sent).toISOString() : null},
-            ${now}, ${now}, ${todo.completed_at ? new Date(todo.completed_at).toISOString() : null})
-  `);
-  return { ...todo, id, created_at: now, updated_at: now } as Todo;
+  const nowIso = new Date().toISOString();
+  const now = new Date(nowIso);
+  await db.insert(schema.todos).values({
+    id,
+    userId: todo.user_id,
+    title: todo.title,
+    notes: todo.notes ?? null,
+    dueDate: todo.due_date ? new Date(todo.due_date) : null,
+    completed: todo.completed,
+    priority: todo.priority,
+    isRecurring: todo.is_recurring,
+    recurrencePattern: todo.recurrence_pattern ?? null,
+    reminderMinutes: todo.reminder_minutes ?? null,
+    lastNotificationSent: todo.last_notification_sent ? new Date(todo.last_notification_sent) : null,
+    createdAt: now,
+    updatedAt: now,
+    completedAt: todo.completed_at ? new Date(todo.completed_at) : null,
+  }).run();
+
+  return { ...todo, id, created_at: nowIso, updated_at: nowIso } as Todo;
 }
 
 export async function getTodosByUserId(
   db: ReturnType<typeof drizzle>,
   userId: string
 ): Promise<Todo[]> {
-  const result = await db.execute(sql`
-    SELECT * FROM todos WHERE user_id = ${userId} ORDER BY 
-      CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 END,
-      created_at DESC
-  `);
-  return result.rows.map(mapTodoRow);
+  const rows = await db.select().from(schema.todos).where(eq(schema.todos.userId, userId));
+  // Map drizzle result rows into API Todo shape (ISO strings)
+  const mapped = rows.map((r: any) => ({
+    id: r.id,
+    user_id: r.userId,
+    title: r.title,
+    notes: r.notes ?? null,
+    due_date: r.dueDate ? new Date(r.dueDate).toISOString() : null,
+    completed: r.completed,
+    priority: r.priority,
+    is_recurring: r.isRecurring,
+    recurrence_pattern: r.recurrencePattern ?? null,
+    reminder_minutes: r.reminderMinutes ?? null,
+    last_notification_sent: r.lastNotificationSent ? new Date(r.lastNotificationSent).toISOString() : null,
+    created_at: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+    updated_at: r.updatedAt ? new Date(r.updatedAt).toISOString() : null,
+    completed_at: r.completedAt ? new Date(r.completedAt).toISOString() : null,
+  })) as Todo[];
+
+  // Restore previous ordering: priority (high, medium, low) then created_at DESC
+  const priorityOrder: Record<string, number> = { high: 1, medium: 2, low: 3 };
+  mapped.sort((a, b) => {
+    const p = (priorityOrder[a.priority] || 99) - (priorityOrder[b.priority] || 99);
+    if (p !== 0) return p;
+    return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+  });
+
+  return mapped;
 }
 
 export async function getTodoById(
   db: ReturnType<typeof drizzle>,
   todoId: string
 ): Promise<Todo | null> {
-  const result = await db.execute(sql`SELECT * FROM todos WHERE id = ${todoId}`);
-  const row = result.rows[0];
+  const rows = await db.select().from(schema.todos).where(eq(schema.todos.id, todoId)).limit(1);
+  const row = rows[0];
   return row ? mapTodoRow(row) : null;
 }
 
@@ -232,10 +262,11 @@ export async function getCompletedTodosByUserId(
   db: ReturnType<typeof drizzle>,
   userId: string
 ): Promise<Todo[]> {
-  const result = await db.execute(sql`
-    SELECT * FROM todos WHERE user_id = ${userId} AND completed = true ORDER BY completed_at DESC
-  `);
-  return result.rows.map(mapTodoRow);
+  const rows = await db.select().from(schema.todos).where(eq(schema.todos.userId, userId) as any).where(eq(schema.todos.completed, true) as any);
+  const mapped = rows.map((r: any) => mapTodoRow(r));
+  // Order by completed_at desc
+  mapped.sort((a, b) => new Date(b.completed_at || 0).getTime() - new Date(a.completed_at || 0).getTime());
+  return mapped;
 }
 
 export async function updateTodo(
@@ -243,64 +274,35 @@ export async function updateTodo(
   id: string,
   updates: Partial<Omit<Todo, 'id' | 'user_id' | 'created_at'>>
 ): Promise<Todo> {
-  // Build set clauses using drizzle-native interpolation so all params are tracked.
-  const setExprs: ReturnType<typeof sql>[] = [];
-
-  if (updates.title !== undefined) {
-    setExprs.push(sql`title = ${updates.title}`);
-  }
-  if (updates.notes !== undefined) {
-    setExprs.push(sql`notes = ${updates.notes ?? null}`);
-  }
-  if (updates.due_date !== undefined) {
-    const mappedDueDate = updates.due_date ? new Date(updates.due_date).toISOString() : null;
-    setExprs.push(sql`due_date = ${mappedDueDate}`);
-  }
+  const setObj: any = {};
+  if (updates.title !== undefined) setObj.title = updates.title;
+  if (updates.notes !== undefined) setObj.notes = updates.notes ?? null;
+  if (updates.due_date !== undefined) setObj.dueDate = updates.due_date ? new Date(updates.due_date) : null;
   if (updates.completed !== undefined) {
-    if (updates.completed) {
-      const completedAt = new Date().toISOString();
-      setExprs.push(sql`completed = ${updates.completed}, completed_at = ${completedAt}`);
-    } else {
-      setExprs.push(sql`completed = ${updates.completed}, completed_at = ${null}`);
-    }
+    setObj.completed = updates.completed;
+    setObj.completedAt = updates.completed ? new Date() : null;
   }
-  if (updates.priority !== undefined) {
-    setExprs.push(sql`priority = ${updates.priority}`);
-  }
-  if (updates.is_recurring !== undefined) {
-    setExprs.push(sql`is_recurring = ${updates.is_recurring}`);
-  }
-  if (updates.recurrence_pattern !== undefined) {
-    setExprs.push(sql`recurrence_pattern = ${updates.recurrence_pattern || null}`);
-  }
-  if (updates.reminder_minutes !== undefined) {
-    setExprs.push(sql`reminder_minutes = ${updates.reminder_minutes || null}`);
-  }
-  if (updates.last_notification_sent !== undefined) {
-    const mappedNotif = updates.last_notification_sent ? new Date(updates.last_notification_sent).toISOString() : null;
-    setExprs.push(sql`last_notification_sent = ${mappedNotif}`);
-  }
+  if (updates.priority !== undefined) setObj.priority = updates.priority;
+  if (updates.is_recurring !== undefined) setObj.isRecurring = updates.is_recurring;
+  if (updates.recurrence_pattern !== undefined) setObj.recurrencePattern = updates.recurrence_pattern || null;
+  if (updates.reminder_minutes !== undefined) setObj.reminderMinutes = updates.reminder_minutes || null;
+  if (updates.last_notification_sent !== undefined) setObj.lastNotificationSent = updates.last_notification_sent ? new Date(updates.last_notification_sent) : null;
 
-  setExprs.push(sql`updated_at = ${new Date().toISOString()}`);
+  setObj.updatedAt = new Date();
 
-  await db.execute(sql`
-    UPDATE todos SET ${sql.join(setExprs, sql`, `)} WHERE id = ${id}
-  `);
+  await db.update(schema.todos).set(setObj).where(eq(schema.todos.id, id)).run();
 
-  // Fetch the updated todo with tags
-  const result = await db.execute(sql`SELECT * FROM todos WHERE id = ${id}`);
-  let todo = result.rows[0] ? mapTodoRow(result.rows[0]) : null;
-  
+  const rows = await db.select().from(schema.todos).where(eq(schema.todos.id, id)).limit(1);
+  let todo = rows[0] ? mapTodoRow(rows[0]) : null;
   if (todo) {
     todo.tags = await getTagsForTodo(db, id);
     todo.subtasks = await getSubtasksForTodo(db, id);
   }
-  
   return todo!;
 }
 
 export async function deleteTodo(db: ReturnType<typeof drizzle>, id: string): Promise<void> {
-  await db.execute(sql`DELETE FROM todos WHERE id = ${id}`);
+  await db.delete(schema.todos).where(eq(schema.todos.id, id)).run();
 }
 
 // ==================== TAG OPERATIONS ====================
@@ -310,16 +312,20 @@ export async function createTag(
   tag: Omit<Tag, 'id' | 'created_at' | 'updated_at'>
 ): Promise<Tag> {
   const id = crypto.randomUUID();
-  const now = new Date().toISOString();
-  await db.execute(sql`
-    INSERT INTO tags (id, user_id, name, color, created_at, updated_at)
-    VALUES (${id}, ${tag.user_id}, ${tag.name}, ${tag.color}, ${now}, ${now})
-  `);
-  return { ...tag, id, created_at: now, updated_at: now };
+  const now = new Date();
+  await db.insert(schema.tags).values({
+    id,
+    userId: tag.user_id,
+    name: tag.name,
+    color: tag.color,
+    createdAt: now,
+    updatedAt: now,
+  }).run();
+  return { ...tag, id, created_at: now.toISOString(), updated_at: now.toISOString() };
 }
 
 export async function deleteTag(db: ReturnType<typeof drizzle>, id: string): Promise<void> {
-  await db.execute(sql`DELETE FROM tags WHERE id = ${id}`);
+  await db.delete(schema.tags).where(eq(schema.tags.id, id)).run();
 }
 
 export async function addTagToTodo(
@@ -327,6 +333,7 @@ export async function addTagToTodo(
   todoId: string,
   tagId: string
 ): Promise<void> {
+  // Use raw SQL with ON CONFLICT DO NOTHING for idempotent attachment
   await db.execute(sql`
     INSERT INTO todo_tags (todo_id, tag_id) VALUES (${todoId}, ${tagId})
     ON CONFLICT DO NOTHING
@@ -338,49 +345,44 @@ export async function removeTagFromTodo(
   todoId: string,
   tagId: string
 ): Promise<void> {
-  await db.execute(sql`DELETE FROM todo_tags WHERE todo_id = ${todoId} AND tag_id = ${tagId}`);
+  await db.delete(schema.todoTags).where(eq(schema.todoTags.todoId, todoId)).where(eq(schema.todoTags.tagId, tagId)).run();
 }
 
 export async function getTagsForTodo(
   db: ReturnType<typeof drizzle>,
   todoId: string
 ): Promise<Tag[]> {
-  const result = await db.execute(sql`
-    SELECT t.* FROM tags t
-    INNER JOIN todo_tags tt ON t.id = tt.tag_id
-    WHERE tt.todo_id = ${todoId}
-  `);
-  return result.rows.map((row: any) => ({
-    ...row,
-    created_at: row.created_at || new Date().toISOString(),
-    updated_at: row.updated_at || new Date().toISOString(),
-  }));
+  const rows = await db
+    .select()
+    .from(schema.tags)
+    .innerJoin(schema.todoTags, eq(schema.tags.id, schema.todoTags.tagId))
+    .where(eq(schema.todoTags.todoId, todoId));
+  return rows.map((r: any) => mapTagRow(r));
 }
 
 export async function getTodosByTagName(
   db: ReturnType<typeof drizzle>,
   tagName: string
 ): Promise<Todo[]> {
-  const result = await db.execute(sql`
-    SELECT todo.* FROM todos todo
-    INNER JOIN todo_tags tt ON todo.id = tt.todo_id
-    INNER JOIN tags t ON tt.tag_id = t.id
-    WHERE t.name = ${tagName}
-    ORDER BY created_at DESC
-  `);
-  return result.rows.map(mapTodoRow);
+  const rows = await db
+    .select()
+    .from(schema.todos)
+    .innerJoin(schema.todoTags, eq(schema.todos.id, schema.todoTags.todoId))
+    .innerJoin(schema.tags, eq(schema.todoTags.tagId, schema.tags.id))
+    .where(eq(schema.tags.name, tagName));
+  const mapped = rows.map((r: any) => mapTodoRow(r));
+  mapped.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  return mapped;
 }
 
 export async function getUserTags(
   db: ReturnType<typeof drizzle>,
   userId: string
 ): Promise<Tag[]> {
-  const result = await db.execute(sql`SELECT * FROM tags WHERE user_id = ${userId} ORDER BY name`);
-  return result.rows.map((row: any) => ({
-    ...row,
-    created_at: row.created_at || new Date().toISOString(),
-    updated_at: row.updated_at || new Date().toISOString(),
-  }));
+  const rows = await db.select().from(schema.tags).where(eq(schema.tags.userId, userId));
+  const mapped = rows.map((r: any) => mapTagRow(r));
+  mapped.sort((a, b) => a.name.localeCompare(b.name));
+  return mapped;
 }
 
 // ==================== SUBTASK OPERATIONS ====================
@@ -390,12 +392,17 @@ export async function createSubtask(
   subtask: Omit<Subtask, 'id' | 'created_at' | 'updated_at'>
 ): Promise<Subtask> {
   const id = crypto.randomUUID();
-  const now = new Date().toISOString();
-  await db.execute(sql`
-    INSERT INTO subtasks (id, todo_id, title, completed, position, created_at, updated_at)
-    VALUES (${id}, ${subtask.todo_id}, ${subtask.title}, ${subtask.completed}, ${subtask.position}, ${now}, ${now})
-  `);
-  return { ...subtask, id, created_at: now, updated_at: now };
+  const now = new Date();
+  await db.insert(schema.subtasks).values({
+    id,
+    todoId: subtask.todo_id,
+    title: subtask.title,
+    completed: subtask.completed,
+    position: subtask.position,
+    createdAt: now,
+    updatedAt: now,
+  }).run();
+  return { ...subtask, id, created_at: now.toISOString(), updated_at: now.toISOString() };
 }
 
 export async function updateSubtask(
@@ -403,31 +410,29 @@ export async function updateSubtask(
   id: string,
   updates: Partial<Pick<Subtask, 'title' | 'completed' | 'position'>>
 ): Promise<Subtask> {
-  const setExprs: ReturnType<typeof sql>[] = [];
+  const setObj: any = {};
+  if (updates.title !== undefined) setObj.title = updates.title;
+  if (updates.completed !== undefined) setObj.completed = updates.completed;
+  if (updates.position !== undefined) setObj.position = updates.position;
+  setObj.updatedAt = new Date();
 
-  if (updates.title !== undefined) { setExprs.push(sql`title = ${updates.title}`); }
-  if (updates.completed !== undefined) { setExprs.push(sql`completed = ${updates.completed}`); }
-  if (updates.position !== undefined) { setExprs.push(sql`position = ${updates.position}`); }
-  setExprs.push(sql`updated_at = ${new Date().toISOString()}`);
-
-  await db.execute(sql`
-    UPDATE subtasks SET ${sql.join(setExprs, sql`, `)} WHERE id = ${id}
-  `);
-
-  const result = await db.execute(sql`SELECT * FROM subtasks WHERE id = ${id}`);
-  return result.rows[0] ? mapSubtaskRow(result.rows[0])! : updates as unknown as Subtask;
+  await db.update(schema.subtasks).set(setObj).where(eq(schema.subtasks.id, id)).run();
+  const rows = await db.select().from(schema.subtasks).where(eq(schema.subtasks.id, id)).limit(1);
+  return rows[0] ? mapSubtaskRow(rows[0])! : (updates as unknown as Subtask);
 }
 
 export async function deleteSubtask(db: ReturnType<typeof drizzle>, id: string): Promise<void> {
-  await db.execute(sql`DELETE FROM subtasks WHERE id = ${id}`);
+  await db.delete(schema.subtasks).where(eq(schema.subtasks.id, id)).run();
 }
 
 export async function getSubtasksForTodo(
   db: ReturnType<typeof drizzle>,
   todoId: string
 ): Promise<Subtask[]> {
-  const result = await db.execute(sql`SELECT * FROM subtasks WHERE todo_id = ${todoId} ORDER BY position ASC`);
-  return result.rows.map(mapSubtaskRow);
+  const rows = await db.select().from(schema.subtasks).where(eq(schema.subtasks.todoId, todoId));
+  const mapped = rows.map((r: any) => mapSubtaskRow(r));
+  mapped.sort((a, b) => (a.position || 0) - (b.position || 0));
+  return mapped;
 }
 
 export async function bulkUpdateSubtaskPositions(
@@ -435,9 +440,7 @@ export async function bulkUpdateSubtaskPositions(
   updates: Array<{ id: string; position: number }>
 ): Promise<void> {
   for (const update of updates) {
-    await db.execute(sql`
-      UPDATE subtasks SET position = ${update.position}, updated_at = ${new Date().toISOString()} WHERE id = ${update.id}
-    `);
+    await db.update(schema.subtasks).set({ position: update.position, updatedAt: new Date() }).where(eq(schema.subtasks.id, update.id)).run();
   }
 }
 
@@ -448,34 +451,42 @@ export async function createTemplate(
   template: Omit<Template, 'id' | 'created_at' | 'updated_at'>
 ): Promise<Template> {
   const id = crypto.randomUUID();
-  const now = new Date().toISOString();
-  await db.execute(sql`
-    INSERT INTO templates (id, user_id, name, description, category, title_template, priority,
-                           is_recurring, recurrence_pattern, reminder_minutes, due_date_offset_minutes,
-                           subtasks_json, created_at, updated_at)
-    VALUES (${id}, ${template.user_id}, ${template.name}, ${template.description || null},
-            ${template.category || null}, ${template.title_template}, ${template.priority},
-            ${template.is_recurring}, ${template.recurrence_pattern || null},
-            ${template.reminder_minutes || null}, ${template.due_date_offset_minutes || null},
-            ${template.subtasks_json || null}, ${now}, ${now})
-  `);
-  return { ...template, id, created_at: now, updated_at: now };
+  const now = new Date();
+  await db.insert(schema.templates).values({
+    id,
+    userId: template.user_id,
+    name: template.name,
+    description: template.description ?? null,
+    category: template.category ?? null,
+    titleTemplate: template.title_template,
+    priority: template.priority,
+    isRecurring: template.is_recurring,
+    recurrencePattern: template.recurrence_pattern ?? null,
+    reminderMinutes: template.reminder_minutes ?? null,
+    dueDateOffsetMinutes: template.due_date_offset_minutes ?? null,
+    subtasksJson: template.subtasks_json ?? null,
+    createdAt: now,
+    updatedAt: now,
+  }).run();
+  return { ...template, id, created_at: now.toISOString(), updated_at: now.toISOString() };
 }
 
 export async function getTemplatesByUserId(
   db: ReturnType<typeof drizzle>,
   userId: string
 ): Promise<Template[]> {
-  const result = await db.execute(sql`SELECT * FROM templates WHERE user_id = ${userId} ORDER BY name`);
-  return result.rows.map(mapTemplateRow);
+  const rows = await db.select().from(schema.templates).where(eq(schema.templates.userId, userId));
+  const mapped = rows.map((r: any) => mapTemplateRow(r));
+  mapped.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  return mapped;
 }
 
 export async function getTemplateById(
   db: ReturnType<typeof drizzle>,
   templateId: string
 ): Promise<Template | null> {
-  const result = await db.execute(sql`SELECT * FROM templates WHERE id = ${templateId}`);
-  return result.rows[0] ? mapTemplateRow(result.rows[0]) : null;
+  const rows = await db.select().from(schema.templates).where(eq(schema.templates.id, templateId)).limit(1);
+  return rows[0] ? mapTemplateRow(rows[0]) : null;
 }
 
 export async function updateTemplate(
@@ -483,31 +494,26 @@ export async function updateTemplate(
   id: string,
   updates: Partial<Omit<Template, 'id' | 'user_id' | 'created_at'>>
 ): Promise<Template> {
-  const setExprs: ReturnType<typeof sql>[] = [];
+  const setObj: any = {};
+  if (updates.name !== undefined) setObj.name = updates.name;
+  if (updates.description !== undefined) setObj.description = updates.description ?? null;
+  if (updates.category !== undefined) setObj.category = updates.category || null;
+  if (updates.title_template !== undefined) setObj.titleTemplate = updates.title_template;
+  if (updates.priority !== undefined) setObj.priority = updates.priority;
+  if (updates.is_recurring !== undefined) setObj.isRecurring = updates.is_recurring;
+  if (updates.recurrence_pattern !== undefined) setObj.recurrencePattern = updates.recurrence_pattern || null;
+  if (updates.reminder_minutes !== undefined) setObj.reminderMinutes = updates.reminder_minutes || null;
+  if (updates.due_date_offset_minutes !== undefined) setObj.dueDateOffsetMinutes = updates.due_date_offset_minutes || null;
+  if (updates.subtasks_json !== undefined) setObj.subtasksJson = updates.subtasks_json || null;
+  setObj.updatedAt = new Date();
 
-  if (updates.name !== undefined) { setExprs.push(sql`name = ${updates.name}`); }
-  if (updates.description !== undefined) { setExprs.push(sql`description = ${updates.description ?? null}`); }
-  if (updates.category !== undefined) { setExprs.push(sql`category = ${updates.category || null}`); }
-  if (updates.title_template !== undefined) { setExprs.push(sql`title_template = ${updates.title_template}`); }
-  if (updates.priority !== undefined) { setExprs.push(sql`priority = ${updates.priority}`); }
-  if (updates.is_recurring !== undefined) { setExprs.push(sql`is_recurring = ${updates.is_recurring}`); }
-  if (updates.recurrence_pattern !== undefined) { setExprs.push(sql`recurrence_pattern = ${updates.recurrence_pattern || null}`); }
-  if (updates.reminder_minutes !== undefined) { setExprs.push(sql`reminder_minutes = ${updates.reminder_minutes || null}`); }
-  if (updates.due_date_offset_minutes !== undefined) { setExprs.push(sql`due_date_offset_minutes = ${updates.due_date_offset_minutes || null}`); }
-  if (updates.subtasks_json !== undefined) { setExprs.push(sql`subtasks_json = ${updates.subtasks_json || null}`); }
-
-  setExprs.push(sql`updated_at = ${new Date().toISOString()}`);
-
-  await db.execute(sql`
-    UPDATE templates SET ${sql.join(setExprs, sql`, `)} WHERE id = ${id}
-  `);
-
-  const result = await db.execute(sql`SELECT * FROM templates WHERE id = ${id}`);
-  return mapTemplateRow(result.rows[0]);
+  await db.update(schema.templates).set(setObj).where(eq(schema.templates.id, id)).run();
+  const rows = await db.select().from(schema.templates).where(eq(schema.templates.id, id)).limit(1);
+  return mapTemplateRow(rows[0]);
 }
 
 export async function deleteTemplate(db: ReturnType<typeof drizzle>, id: string): Promise<void> {
-  await db.execute(sql`DELETE FROM templates WHERE id = ${id}`);
+  await db.delete(schema.templates).where(eq(schema.templates.id, id)).run();
 }
 
 // ==================== HOLIDAY OPERATIONS ====================
@@ -517,10 +523,14 @@ export async function upsertHoliday(
   holiday: Omit<Holiday, 'created_at'>
 ): Promise<void> {
   const dateStr = typeof holiday.date === 'string' ? holiday.date : new Date(holiday.date).toISOString().split('T')[0];
-  await db.execute(sql`
-    INSERT INTO holidays (date, name) VALUES (${dateStr}, ${holiday.name})
-    ON CONFLICT (date) DO UPDATE SET name = ${holiday.name}
-  `);
+  try {
+    // Try to use Drizzle upsert helpers if available
+    // @ts-ignore
+    await db.insert(schema.holidays).values({ date: dateStr, name: holiday.name, createdAt: new Date() }).onConflictDoUpdate({ target: 'date', set: { name: holiday.name } }).run();
+  } catch {
+    // Fallback to raw SQL ON CONFLICT for portability
+    await db.execute(sql`INSERT INTO holidays (date, name) VALUES (${dateStr}, ${holiday.name}) ON CONFLICT (date) DO UPDATE SET name = ${holiday.name}`);
+  }
 }
 
 export async function getHolidaysBetween(
@@ -530,15 +540,21 @@ export async function getHolidaysBetween(
 ): Promise<Holiday[]> {
   const startStr = startDate.toISOString().split('T')[0];
   const endStr = endDate.toISOString().split('T')[0];
-  const result = await db.execute(sql`
-    SELECT * FROM holidays WHERE date BETWEEN ${startStr} AND ${endStr} ORDER BY date
-  `);
-  return result.rows.map(mapHolidayRow);
+  const rows = await db
+    .select()
+    .from(schema.holidays)
+    .where(gte(schema.holidays.date, startStr) as any)
+    .where(lte(schema.holidays.date, endStr) as any);
+  const mapped = rows.map((r: any) => mapHolidayRow(r));
+  mapped.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  return mapped;
 }
 
 export async function getAllHolidays(db: ReturnType<typeof drizzle>): Promise<Holiday[]> {
-  const result = await db.execute(sql`SELECT * FROM holidays ORDER BY date`);
-  return result.rows.map(mapHolidayRow);
+  const rows = await db.select().from(schema.holidays);
+  const mapped = rows.map((r: any) => mapHolidayRow(r));
+  mapped.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  return mapped;
 }
 
 // ==================== CALENDAR OPERATIONS ====================
@@ -604,10 +620,14 @@ export async function createNotificationLog(
   todoId: string,
   scheduledFor: Date
 ): Promise<void> {
-  await db.execute(sql`
-    INSERT INTO notifications (todo_id, notification_type, scheduled_for, status)
-    VALUES (${todoId}, 'due_reminder', ${scheduledFor.toISOString()}, 'pending')
-  `);
+  await db.insert(schema.notifications).values({
+    todoId,
+    notificationType: 'due_reminder',
+    scheduledFor,
+    status: 'pending',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }).run();
 }
 
 export async function updateNotificationStatus(
@@ -615,16 +635,17 @@ export async function updateNotificationStatus(
   todoId: string,
   status: string
 ): Promise<void> {
+  // Update the most-recent pending notification for the todo
   await db.execute(sql`
     UPDATE notifications SET status = ${status}, updated_at = ${new Date().toISOString()}
-    WHERE todo_id = ${todoId} AND status = 'pending' ORDER BY scheduled_for DESC LIMIT 1
+    WHERE id = (
+      SELECT id FROM notifications WHERE todo_id = ${todoId} AND status = 'pending' ORDER BY scheduled_for DESC LIMIT 1
+    )
   `);
 }
 
 export async function markAsSent(db: ReturnType<typeof drizzle>, notificationId: number): Promise<void> {
-  await db.execute(sql`
-    UPDATE notifications SET status = 'sent', updated_at = ${new Date().toISOString()} WHERE id = ${notificationId}
-  `);
+  await db.update(schema.notifications).set({ status: 'sent', updatedAt: new Date() }).where(eq(schema.notifications.id, notificationId)).run();
 }
 
 // ==================== AUTH OPERATIONS ====================
@@ -633,8 +654,8 @@ export async function getUserByUsername(
   db: ReturnType<typeof drizzle>,
   username: string
 ): Promise<User | null> {
-  const result = await db.execute(sql`SELECT * FROM users WHERE username = ${username}`);
-  return result.rows[0] ? mapUserRow(result.rows[0]) : null;
+  const rows = await db.select().from(schema.users).where(eq(schema.users.username, username)).limit(1);
+  return rows[0] ? mapUserRow(rows[0]) : null;
 }
 
 export async function createUser(
@@ -642,48 +663,51 @@ export async function createUser(
   userData: Omit<User, 'id' | 'created_at' | 'updated_at'> & { password_hash?: string }
 ): Promise<User> {
   const id = crypto.randomUUID();
-  const now = new Date().toISOString();
-  await db.execute(sql`
-    INSERT INTO users (id, username, password_hash, created_at, updated_at)
-    VALUES (${id}, ${userData.username}, ${userData.password_hash || null}, ${now}, ${now})
-  `);
-  return { ...userData, id, created_at: now, updated_at: now } as User;
+  const now = new Date();
+  await db.insert(schema.users).values({ id, username: userData.username, passwordHash: userData.password_hash ?? null, createdAt: now, updatedAt: now }).run();
+  return { ...userData, id, created_at: now.toISOString(), updated_at: now.toISOString() } as User;
 }
 
 export async function getUserByCredentialId(
   db: ReturnType<typeof drizzle>,
   credentialId: string
 ): Promise<User | null> {
-  const result = await db.execute(sql`
-    SELECT u.* FROM users u
-    INNER JOIN authenticators a ON u.id = a.user_id
-    WHERE a.credential_id = ${credentialId}
-  `);
-  return result.rows[0] ? mapUserRow(result.rows[0]) : null;
+  const rows = await db
+    .select()
+    .from(schema.users)
+    .innerJoin(schema.authenticators, eq(schema.users.id, schema.authenticators.userId))
+    .where(eq(schema.authenticators.credentialId, credentialId))
+    .limit(1);
+  return rows[0] ? mapUserRow(rows[0]) : null;
 }
 
 export async function createAuthenticator(
   db: ReturnType<typeof drizzle>,
   auth: Omit<Authenticator, 'created_at' | 'updated_at'>
 ): Promise<Authenticator> {
-  const now = new Date().toISOString();
-  await db.execute(sql`
-    INSERT INTO authenticators (credential_id, user_id, public_key, counter, transports, created_at, updated_at)
-    VALUES (${auth.credential_id}, ${auth.user_id}, ${auth.public_key}, ${auth.counter}, ${auth.transports || null}, ${now}, ${now})
-  `);
-  return { ...auth, created_at: now, updated_at: now };
+  const now = new Date();
+  await db.insert(schema.authenticators).values({
+    credentialId: auth.credential_id,
+    userId: auth.user_id,
+    publicKey: auth.public_key,
+    counter: auth.counter ?? 0,
+    transports: auth.transports ?? null,
+    createdAt: now,
+    updatedAt: now,
+  }).run();
+  return { ...auth, created_at: now.toISOString(), updated_at: now.toISOString() };
 }
 
 export async function getAuthenticatorsByUserId(
   db: ReturnType<typeof drizzle>,
   userId: string
 ): Promise<Authenticator[]> {
-  const result = await db.execute(sql`SELECT * FROM authenticators WHERE user_id = ${userId}`);
-  return result.rows.map(mapAuthenticatorRow);
+  const rows = await db.select().from(schema.authenticators).where(eq(schema.authenticators.userId, userId));
+  return rows.map((r: any) => mapAuthenticatorRow(r));
 }
 
 export async function deleteAuthenticator(db: ReturnType<typeof drizzle>, credentialId: string): Promise<void> {
-  await db.execute(sql`DELETE FROM authenticators WHERE credential_id = ${credentialId}`);
+  await db.delete(schema.authenticators).where(eq(schema.authenticators.credentialId, credentialId)).run();
 }
 
 // ==================== EXPORT/IMPORT OPERATIONS ====================
@@ -692,8 +716,10 @@ export async function exportTodos(
   db: ReturnType<typeof drizzle>,
   userId: string
 ): Promise<Todo[]> {
-  const result = await db.execute(sql`SELECT * FROM todos WHERE user_id = ${userId} ORDER BY created_at DESC`);
-  return result.rows.map(mapTodoRow);
+  const rows = await db.select().from(schema.todos).where(eq(schema.todos.userId, userId));
+  const mapped = rows.map((r: any) => mapTodoRow(r));
+  mapped.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  return mapped;
 }
 
 export async function importTodos(
@@ -709,27 +735,24 @@ export async function importTodos(
 
   // Create or reuse tags
   for (const tag of tags) {
-    const existing = await db.execute(sql`SELECT id FROM tags WHERE user_id = ${userId} AND name = ${tag.name}`);
-    if (existing.rows.length > 0) {
+    const existing = await db.select().from(schema.tags).where(eq(schema.tags.userId, userId) as any).where(eq(schema.tags.name, tag.name) as any);
+    if (existing.length > 0) {
       tagsReused++;
     } else {
       const tagId = crypto.randomUUID();
-      const now = new Date().toISOString();
-      await db.execute(sql`
-        INSERT INTO tags (id, user_id, name, color, created_at, updated_at)
-        VALUES (${tagId}, ${userId}, ${tag.name}, ${tag.color}, ${now}, ${now})
-      `);
+      const now = new Date();
+      await db.insert(schema.tags).values({ id: tagId, userId, name: tag.name, color: tag.color, createdAt: now, updatedAt: now }).run();
       tagsCreated++;
     }
   }
 
   for (const todo of todos) {
-    const existing = await db.execute(sql`SELECT id FROM todos WHERE id = ${todo.id || ''}`);
-    if (existing.rows.length > 0) {
-      // Update existing
+    const existing = todo.id ? await db.select().from(schema.todos).where(eq(schema.todos.id, todo.id)).limit(1) : [];
+    if (existing.length > 0) {
+      // Update existing (not implemented granularly here)
       updatedCount++;
     } else {
-      await createTodo(db, todo as Omit<Todo, 'id' | 'created_at' | 'updated_at'>);
+      await createTodo(db, todo as Omit<Todo, 'id' | 'created_at' | 'updated_at'> & { user_id: string });
       createdCount++;
     }
   }
@@ -766,63 +789,68 @@ export async function getNextOccurrenceFromRecurrence(
 // ==================== HELPER FUNCTIONS ====================
 
 function mapTodoRow(row: any): Todo {
+  const userId = row.user_id ?? row.userId;
+  const due = row.due_date ?? row.dueDate;
+  const lastNotif = row.last_notification_sent ?? row.lastNotificationSent;
   return {
     id: row.id,
-    user_id: row.user_id,
+    user_id: userId,
     title: row.title,
     notes: row.notes,
-    due_date: row.due_date ? (typeof row.due_date === 'string' ? row.due_date : new Date(row.due_date).toISOString()) : null,
+    due_date: due ? (typeof due === 'string' ? due : new Date(due).toISOString()) : null,
     completed: row.completed,
     priority: row.priority as Priority,
-    is_recurring: row.is_recurring,
-    recurrence_pattern: row.recurrence_pattern,
-    reminder_minutes: row.reminder_minutes,
-    last_notification_sent: row.last_notification_sent ? (typeof row.last_notification_sent === 'string' ? row.last_notification_sent : new Date(row.last_notification_sent).toISOString()) : null,
-    created_at: typeof row.created_at === 'string' ? row.created_at : new Date(row.created_at).toISOString(),
-    updated_at: typeof row.updated_at === 'string' ? row.updated_at : new Date(row.updated_at).toISOString(),
-    completed_at: row.completed_at ? (typeof row.completed_at === 'string' ? row.completed_at : new Date(row.completed_at).toISOString()) : null,
-  };
+    is_recurring: row.is_recurring ?? row.isRecurring,
+    recurrence_pattern: row.recurrence_pattern ?? row.recurrencePattern,
+    reminder_minutes: row.reminder_minutes ?? row.reminderMinutes,
+    last_notification_sent: lastNotif ? (typeof lastNotif === 'string' ? lastNotif : new Date(lastNotif).toISOString()) : null,
+    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
+    updated_at: typeof (row.updated_at ?? row.updatedAt) === 'string' ? (row.updated_at ?? row.updatedAt) : new Date(row.updated_at ?? row.updatedAt).toISOString(),
+    completed_at: (row.completed_at ?? row.completedAt) ? (typeof (row.completed_at ?? row.completedAt) === 'string' ? (row.completed_at ?? row.completedAt) : new Date(row.completed_at ?? row.completedAt).toISOString()) : null,
+  } as Todo;
 }
 
 function mapSubtaskRow(row: any): Subtask {
+  const todoId = row.todo_id ?? row.todoId;
   return {
     id: row.id,
-    todo_id: row.todo_id,
+    todo_id: todoId,
     title: row.title,
     completed: row.completed,
     position: row.position,
-    created_at: typeof row.created_at === 'string' ? row.created_at : new Date(row.created_at).toISOString(),
-    updated_at: typeof row.updated_at === 'string' ? row.updated_at : new Date(row.updated_at).toISOString(),
+    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
+    updated_at: typeof (row.updated_at ?? row.updatedAt) === 'string' ? (row.updated_at ?? row.updatedAt) : new Date(row.updated_at ?? row.updatedAt).toISOString(),
   };
 }
 
 function mapTagRow(row: any): Tag {
+  const userId = row.user_id ?? row.userId;
   return {
     id: row.id,
-    user_id: row.user_id,
+    user_id: userId,
     name: row.name,
     color: row.color || '#3b82f6',
-    created_at: typeof row.created_at === 'string' ? row.created_at : new Date(row.created_at).toISOString(),
-    updated_at: typeof row.updated_at === 'string' ? row.updated_at : new Date(row.updated_at).toISOString(),
+    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
+    updated_at: typeof (row.updated_at ?? row.updatedAt) === 'string' ? (row.updated_at ?? row.updatedAt) : new Date(row.updated_at ?? row.updatedAt).toISOString(),
   };
 }
 
 function mapTemplateRow(row: any): Template {
   return {
     id: row.id,
-    user_id: row.user_id,
+    user_id: row.user_id ?? row.userId,
     name: row.name,
     description: row.description,
     category: row.category,
-    title_template: row.title_template,
+    title_template: row.title_template ?? row.titleTemplate,
     priority: row.priority as Priority,
-    is_recurring: row.is_recurring,
-    recurrence_pattern: row.recurrence_pattern,
-    reminder_minutes: row.reminder_minutes,
-    due_date_offset_minutes: row.due_date_offset_minutes,
-    subtasks_json: row.subtasks_json,
-    created_at: typeof row.created_at === 'string' ? row.created_at : new Date(row.created_at).toISOString(),
-    updated_at: typeof row.updated_at === 'string' ? row.updated_at : new Date(row.updated_at).toISOString(),
+    is_recurring: row.is_recurring ?? row.isRecurring,
+    recurrence_pattern: row.recurrence_pattern ?? row.recurrencePattern,
+    reminder_minutes: row.reminder_minutes ?? row.reminderMinutes,
+    due_date_offset_minutes: row.due_date_offset_minutes ?? row.dueDateOffsetMinutes,
+    subtasks_json: row.subtasks_json ?? row.subtasksJson,
+    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
+    updated_at: typeof (row.updated_at ?? row.updatedAt) === 'string' ? (row.updated_at ?? row.updatedAt) : new Date(row.updated_at ?? row.updatedAt).toISOString(),
   };
 }
 
@@ -830,7 +858,7 @@ function mapHolidayRow(row: any): Holiday {
   return {
     date: row.date,
     name: row.name,
-    created_at: typeof row.created_at === 'string' ? row.created_at : new Date(row.created_at).toISOString(),
+    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
   };
 }
 
@@ -838,20 +866,20 @@ function mapUserRow(row: any): User {
   return {
     id: row.id,
     username: row.username,
-    created_at: typeof row.created_at === 'string' ? row.created_at : new Date(row.created_at).toISOString(),
-    updated_at: typeof row.updated_at === 'string' ? row.updated_at : new Date(row.updated_at).toISOString(),
+    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
+    updated_at: typeof (row.updated_at ?? row.updatedAt) === 'string' ? (row.updated_at ?? row.updatedAt) : new Date(row.updated_at ?? row.updatedAt).toISOString(),
   };
 }
 
 function mapAuthenticatorRow(row: any): Authenticator {
   return {
-    credential_id: row.credential_id,
-    user_id: row.user_id,
-    public_key: row.public_key,
-    counter: Number(row.counter),
+    credential_id: row.credential_id ?? row.credentialId,
+    user_id: row.user_id ?? row.userId,
+    public_key: row.public_key ?? row.publicKey,
+    counter: Number(row.counter ?? row.counter),
     transports: row.transports,
-    created_at: typeof row.created_at === 'string' ? row.created_at : new Date(row.created_at).toISOString(),
-    updated_at: typeof row.updated_at === 'string' ? row.updated_at : new Date(row.updated_at).toISOString(),
+    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
+    updated_at: typeof (row.updated_at ?? row.updatedAt) === 'string' ? (row.updated_at ?? row.updatedAt) : new Date(row.updated_at ?? row.updatedAt).toISOString(),
   };
 }
 
@@ -983,22 +1011,25 @@ function createTodoFacade(): TodoFacade {
       return true;
     },
     async findByRange(userId, startDate, endDate) {
-      const startStr = startDate.toISOString().split('T')[0];
-      const endStr = endDate.toISOString().split('T')[0];
-      const result = await db.execute(sql`
-        SELECT * FROM todos WHERE user_id = ${userId} AND due_date BETWEEN ${startStr} AND ${endStr} ORDER BY due_date
-      `);
-      return result.rows.map(mapTodoRow);
+      const rows = await db
+        .select()
+        .from(schema.todos)
+        .where(eq(schema.todos.userId, userId) as any)
+        .where(gte(schema.todos.dueDate, startDate) as any)
+        .where(lte(schema.todos.dueDate, endDate) as any);
+      return rows.map(mapTodoRow);
     },
     async findAllByUser(userId) {
-      const result = await db.execute(sql`SELECT * FROM todos WHERE user_id = ${userId} ORDER BY created_at DESC`);
-      return result.rows.map(mapTodoRow);
+      const rows = await db.select().from(schema.todos).where(eq(schema.todos.userId, userId));
+      const mapped = rows.map((r: any) => mapTodoRow(r));
+      mapped.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+      return mapped;
     },
     async importAll(userId, todosData) {
       let createdCount = 0;
       for (const data of todosData) {
-        const existing = await db.execute(sql`SELECT id FROM todos WHERE id = ${data.id}`);
-        if (existing.rows.length > 0) {
+        const existing = data.id ? await db.select().from(schema.todos).where(eq(schema.todos.id, data.id)).limit(1) : [];
+        if (existing.length > 0) {
           continue; // Skip existing during import
         }
         await createTodo(db, data as Omit<Todo, 'id' | 'created_at' | 'updated_at'> & { user_id: string });
@@ -1019,45 +1050,48 @@ function createTagFacade(): TagFacade {
       return getUserTags(db, userId);
     },
     async findById(id, userId) {
-      const result = await db.execute(sql`SELECT * FROM tags WHERE id = ${id} AND user_id = ${userId}`);
-      const row = result.rows[0];
-      if (!row) return null;
-      return mapTagRow(row);
-    },
-    async update(id, userId, updates) {
-      const existing = await db.execute(sql`SELECT * FROM tags WHERE id = ${id} AND user_id = ${userId}`);
-      if (!existing.rows.length) throw new Error('Tag not found');
-      const setClauses: string[] = [];
-      const values: (string | number)[] = [];
-      let paramIndex = 1;
-      // Use drizzle-native interpolation to avoid dollar-quoted string issues
-      const tagSetExprs: ReturnType<typeof sql>[] = [];
-      let idx = 1;
-      if (updates.name !== undefined) { tagSetExprs.push(sql`name = ${updates.name}`); }
-      if (updates.color !== undefined) { tagSetExprs.push(sql`color = ${updates.color}`); }
-      tagSetExprs.push(sql`updated_at = ${new Date().toISOString()}`);
-      await db.execute(sql`UPDATE tags SET ${sql.join(tagSetExprs, sql`, `)} WHERE id = ${id}`);
-      const result = await db.execute(sql`SELECT * FROM tags WHERE id = ${id}`);
-      return mapTagRow(result.rows[0]);
-    },
-    async delete(id, userId) {
-      const existing = await db.execute(sql`SELECT * FROM tags WHERE id = ${id} AND user_id = ${userId}`);
-      if (!existing.rows.length) return false;
-      await db.execute(sql`DELETE FROM tags WHERE id = ${id}`);
-      return true;
-    },
+          const rows = await db.select().from(schema.tags).where(eq(schema.tags.id, id)).where(eq(schema.tags.userId, userId)).limit(1);
+          if (!rows.length) return null;
+          return mapTagRow(rows[0]);
+        },
+        async update(id, userId, updates) {
+          const existing = await db.select().from(schema.tags).where(eq(schema.tags.id, id)).where(eq(schema.tags.userId, userId)).limit(1);
+          if (!existing.length) throw new Error('Tag not found');
+          const setObj: any = {};
+          if (updates.name !== undefined) setObj.name = updates.name;
+          if (updates.color !== undefined) setObj.color = updates.color;
+          setObj.updatedAt = new Date();
+          await db.update(schema.tags).set(setObj).where(eq(schema.tags.id, id)).run();
+          const rows = await db.select().from(schema.tags).where(eq(schema.tags.id, id)).limit(1);
+          return mapTagRow(rows[0]);
+        },
+        async delete(id, userId) {
+          const existing = await db.select().from(schema.tags).where(eq(schema.tags.id, id)).where(eq(schema.tags.userId, userId)).limit(1);
+          if (!existing.length) return false;
+          await db.delete(schema.tags).where(eq(schema.tags.id, id)).run();
+          return true;
+        },
+
     async attachToTodo(todoId, tagId, userId) {
-      const tag = await db.execute(sql`SELECT * FROM tags WHERE id = ${tagId} AND user_id = ${userId}`);
-      if (!tag.rows.length) return false;
-      await db.execute(sql`INSERT INTO todo_tags (todo_id, tag_id) VALUES (${todoId}, ${tagId}) ON CONFLICT DO NOTHING`);
-      return true;
-    },
-    async detachFromTodo(todoId, tagId, userId) {
-      const tag = await db.execute(sql`SELECT * FROM tags WHERE id = ${tagId} AND user_id = ${userId}`);
-      if (!tag.rows.length) return false;
-      await db.execute(sql`DELETE FROM todo_tags WHERE todo_id = ${todoId} AND tag_id = ${tagId}`);
-      return true;
-    },
+          const tag = await db.select().from(schema.tags).where(eq(schema.tags.id, tagId)).where(eq(schema.tags.userId, userId)).limit(1);
+          if (!tag.length) return false;
+          // Use Drizzle insert with onConflictDoNothing when available; fallback to raw SQL if not
+          try {
+            // @ts-ignore - onConflictDoNothing may exist depending on drizzle version
+            await db.insert(schema.todoTags).values({ todoId, tagId }).onConflictDoNothing().run();
+          } catch {
+            // fallback to raw SQL if the dialect doesn't support the builder method
+            await db.execute(sql`INSERT INTO todo_tags (todo_id, tag_id) VALUES (${todoId}, ${tagId}) ON CONFLICT DO NOTHING`);
+          }
+          return true;
+        },
+        async detachFromTodo(todoId, tagId, userId) {
+          const tag = await db.select().from(schema.tags).where(eq(schema.tags.id, tagId)).where(eq(schema.tags.userId, userId)).limit(1);
+          if (!tag.length) return false;
+          await db.delete(schema.todoTags).where(eq(schema.todoTags.todoId, todoId)).where(eq(schema.todoTags.tagId, tagId)).run();
+          return true;
+        },
+
   };
 }
 
@@ -1068,29 +1102,35 @@ function createSubtaskFacade(): SubtaskFacade {
       return createSubtask(db, data);
     },
     async findById(id, userId) {
-      const result = await db.execute(sql`
-        SELECT s.* FROM subtasks s
-        INNER JOIN todos t ON s.todo_id = t.id
-        WHERE s.id = ${id} AND t.user_id = ${userId}
-      `);
-      return result.rows[0] ? mapSubtaskRow(result.rows[0]) : null;
+      const rows = await db
+        .select()
+        .from(schema.subtasks)
+        .innerJoin(schema.todos, eq(schema.subtasks.todoId, schema.todos.id))
+        .where(eq(schema.subtasks.id, id))
+        .where(eq(schema.todos.userId, userId))
+        .limit(1);
+      return rows[0] ? mapSubtaskRow(rows[0]) : null;
     },
     async update(id, userId, updates) {
-      const existing = await db.execute(sql`
-        SELECT s.* FROM subtasks s
-        INNER JOIN todos t ON s.todo_id = t.id
-        WHERE s.id = ${id} AND t.user_id = ${userId}
-      `);
-      if (!existing.rows.length) throw new Error('Subtask not found');
+      const existing = await db
+        .select()
+        .from(schema.subtasks)
+        .innerJoin(schema.todos, eq(schema.subtasks.todoId, schema.todos.id))
+        .where(eq(schema.subtasks.id, id))
+        .where(eq(schema.todos.userId, userId))
+        .limit(1);
+      if (!existing.length) throw new Error('Subtask not found');
       return updateSubtask(db, id, updates);
     },
     async delete(id, userId) {
-      const existing = await db.execute(sql`
-        SELECT s.* FROM subtasks s
-        INNER JOIN todos t ON s.todo_id = t.id
-        WHERE s.id = ${id} AND t.user_id = ${userId}
-      `);
-      if (!existing.rows.length) return false;
+      const existing = await db
+        .select()
+        .from(schema.subtasks)
+        .innerJoin(schema.todos, eq(schema.subtasks.todoId, schema.todos.id))
+        .where(eq(schema.subtasks.id, id))
+        .where(eq(schema.todos.userId, userId))
+        .limit(1);
+      if (!existing.length) return false;
       await deleteSubtask(db, id);
       return true;
     },
@@ -1110,17 +1150,22 @@ function createTemplateFacade(): TemplateFacade {
       return getTemplatesByUserId(db, userId);
     },
     async findById(id, userId) {
-      const result = await db.execute(sql`SELECT * FROM templates WHERE id = ${id} AND user_id = ${userId}`);
-      return result.rows[0] ? mapTemplateRow(result.rows[0]) : null;
+      const rows = await db
+        .select()
+        .from(schema.templates)
+        .where(eq(schema.templates.id, id))
+        .where(eq(schema.templates.userId, userId))
+        .limit(1);
+      return rows[0] ? mapTemplateRow(rows[0]) : null;
     },
     async update(id, userId, updates) {
-      const existing = await db.execute(sql`SELECT * FROM templates WHERE id = ${id} AND user_id = ${userId}`);
-      if (!existing.rows.length) throw new Error('Template not found');
+      const existing = await db.select().from(schema.templates).where(eq(schema.templates.id, id)).where(eq(schema.templates.userId, userId)).limit(1);
+      if (!existing.length) throw new Error('Template not found');
       return updateTemplate(db, id, updates);
     },
     async delete(id, userId) {
-      const existing = await db.execute(sql`SELECT * FROM templates WHERE id = ${id} AND user_id = ${userId}`);
-      if (!existing.rows.length) return false;
+      const existing = await db.select().from(schema.templates).where(eq(schema.templates.id, id)).where(eq(schema.templates.userId, userId)).limit(1);
+      if (!existing.length) return false;
       await deleteTemplate(db, id);
       return true;
     },

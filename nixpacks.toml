@@ -1,16 +1,20 @@
 providers = ["node"]
 
+[env]
+# Preferred Node version for Nixpacks — deployment platforms can override via environment variables
+NIXPACKS_NODE_VERSION = "22.13.0"
+
 [phases.setup]
 nixPkgs = ["nodejs", "python3", "gcc", "gnumake", "pkg-config"]
 
-[phases.dependencies]
-cmds = [
-  "npm install --build-from-source --prefer-offline"
-]
+[phases.install]
+# Use npm ci in CI to honor package-lock; include dev dependencies required for Next.js build
+command = "npm ci --include=dev"
 
 [phases.build]
-cmds = ["npm run build"]
-cacheDirectories = ["node_modules/.cache", ".next/cache"]
+command = "npm run build"
+cacheDirectories = [".next/cache", "node_modules/.cache"]
 
 [start]
-cmd = "npm run db:migrate && next start"
+# Run DB migrations, then start. Adjust migration command if your project uses a different script.
+cmd = "npm run db:migrate && npm run start"
