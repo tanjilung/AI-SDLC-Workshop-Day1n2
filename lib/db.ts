@@ -243,60 +243,48 @@ export async function updateTodo(
   id: string,
   updates: Partial<Omit<Todo, 'id' | 'user_id' | 'created_at'>>
 ): Promise<Todo> {
-  const setClauses: string[] = [];
-  const values: (string | number | boolean | null)[] = [];
-  let paramIndex = 1;
+  // Build set clauses using drizzle-native interpolation so all params are tracked.
+  const setExprs: ReturnType<typeof sql>[] = [];
 
   if (updates.title !== undefined) {
-    setClauses.push(`title = $${paramIndex++}`);
-    values.push(updates.title);
+    setExprs.push(sql`title = ${updates.title}`);
   }
   if (updates.notes !== undefined) {
-    setClauses.push(`notes = $${paramIndex++}`);
-    values.push(updates.notes ?? null);
+    setExprs.push(sql`notes = ${updates.notes ?? null}`);
   }
   if (updates.due_date !== undefined) {
-    setClauses.push(`due_date = $${paramIndex++}`);
-    values.push(updates.due_date ? new Date(updates.due_date).toISOString().split('T')[0] : null);
+    const mappedDueDate = updates.due_date ? new Date(updates.due_date).toISOString().split('T')[0] : null;
+    setExprs.push(sql`due_date = ${mappedDueDate}`);
   }
   if (updates.completed !== undefined) {
-    setClauses.push(`completed = $${paramIndex++}`);
-    values.push(updates.completed);
     if (updates.completed) {
-      setClauses.push(`completed_at = $${paramIndex++}`);
-      values.push(new Date().toISOString());
+      const completedAt = new Date().toISOString();
+      setExprs.push(sql`completed = ${updates.completed}, completed_at = ${completedAt}`);
     } else {
-      setClauses.push(`completed_at = $${paramIndex++}`);
-      values.push(null);
+      setExprs.push(sql`completed = ${updates.completed}, completed_at = ${null}`);
     }
   }
   if (updates.priority !== undefined) {
-    setClauses.push(`priority = $${paramIndex++}`);
-    values.push(updates.priority);
+    setExprs.push(sql`priority = ${updates.priority}`);
   }
   if (updates.is_recurring !== undefined) {
-    setClauses.push(`is_recurring = $${paramIndex++}`);
-    values.push(updates.is_recurring);
+    setExprs.push(sql`is_recurring = ${updates.is_recurring}`);
   }
   if (updates.recurrence_pattern !== undefined) {
-    setClauses.push(`recurrence_pattern = $${paramIndex++}`);
-    values.push(updates.recurrence_pattern || null);
+    setExprs.push(sql`recurrence_pattern = ${updates.recurrence_pattern || null}`);
   }
   if (updates.reminder_minutes !== undefined) {
-    setClauses.push(`reminder_minutes = $${paramIndex++}`);
-    values.push(updates.reminder_minutes || null);
+    setExprs.push(sql`reminder_minutes = ${updates.reminder_minutes || null}`);
   }
   if (updates.last_notification_sent !== undefined) {
-    setClauses.push(`last_notification_sent = $${paramIndex++}`);
-    values.push(updates.last_notification_sent ? new Date(updates.last_notification_sent).toISOString() : null);
+    const mappedNotif = updates.last_notification_sent ? new Date(updates.last_notification_sent).toISOString() : null;
+    setExprs.push(sql`last_notification_sent = ${mappedNotif}`);
   }
 
-  setClauses.push(`updated_at = $${paramIndex++}`);
-  values.push(new Date().toISOString());
-  values.push(id);
+  setExprs.push(sql`updated_at = ${new Date().toISOString()}`);
 
   await db.execute(sql`
-    UPDATE todos SET ${sql.raw(setClauses.slice(0, -1).join(', '))} WHERE id = $${paramIndex}
+    UPDATE todos SET ${sql.join(setExprs, sql`, `)} WHERE id = ${id}
   `);
 
   // Fetch the updated todo with tags
@@ -415,20 +403,15 @@ export async function updateSubtask(
   id: string,
   updates: Partial<Pick<Subtask, 'title' | 'completed' | 'position'>>
 ): Promise<Subtask> {
-  const setClauses: string[] = [];
-  const values: (string | number | boolean)[] = [];
-  let paramIndex = 1;
+  const setExprs: ReturnType<typeof sql>[] = [];
 
-  if (updates.title !== undefined) { setClauses.push(`title = $${paramIndex++}`); values.push(updates.title); }
-  if (updates.completed !== undefined) { setClauses.push(`completed = $${paramIndex++}`); values.push(updates.completed); }
-  if (updates.position !== undefined) { setClauses.push(`position = $${paramIndex++}`); values.push(updates.position); }
-  
-  setClauses.push(`updated_at = $${paramIndex++}`);
-  values.push(new Date().toISOString());
-  values.push(id);
+  if (updates.title !== undefined) { setExprs.push(sql`title = ${updates.title}`); }
+  if (updates.completed !== undefined) { setExprs.push(sql`completed = ${updates.completed}`); }
+  if (updates.position !== undefined) { setExprs.push(sql`position = ${updates.position}`); }
+  setExprs.push(sql`updated_at = ${new Date().toISOString()}`);
 
   await db.execute(sql`
-    UPDATE subtasks SET ${sql.raw(setClauses.slice(0, -1).join(', '))} WHERE id = $${paramIndex}
+    UPDATE subtasks SET ${sql.join(setExprs, sql`, `)} WHERE id = ${id}
   `);
 
   const result = await db.execute(sql`SELECT * FROM subtasks WHERE id = ${id}`);
@@ -500,27 +483,23 @@ export async function updateTemplate(
   id: string,
   updates: Partial<Omit<Template, 'id' | 'user_id' | 'created_at'>>
 ): Promise<Template> {
-  const setClauses: string[] = [];
-  const values: (string | number | boolean | null)[] = [];
-  let paramIndex = 1;
+  const setExprs: ReturnType<typeof sql>[] = [];
 
-  if (updates.name !== undefined) { setClauses.push(`name = $${paramIndex++}`); values.push(updates.name); }
-  if (updates.description !== undefined) { setClauses.push(`description = $${paramIndex++}`); values.push(updates.description ?? null); }
-  if (updates.category !== undefined) { setClauses.push(`category = $${paramIndex++}`); values.push(updates.category || null); }
-  if (updates.title_template !== undefined) { setClauses.push(`title_template = $${paramIndex++}`); values.push(updates.title_template); }
-  if (updates.priority !== undefined) { setClauses.push(`priority = $${paramIndex++}`); values.push(updates.priority); }
-  if (updates.is_recurring !== undefined) { setClauses.push(`is_recurring = $${paramIndex++}`); values.push(updates.is_recurring); }
-  if (updates.recurrence_pattern !== undefined) { setClauses.push(`recurrence_pattern = $${paramIndex++}`); values.push(updates.recurrence_pattern || null); }
-  if (updates.reminder_minutes !== undefined) { setClauses.push(`reminder_minutes = $${paramIndex++}`); values.push(updates.reminder_minutes || null); }
-  if (updates.due_date_offset_minutes !== undefined) { setClauses.push(`due_date_offset_minutes = $${paramIndex++}`); values.push(updates.due_date_offset_minutes || null); }
-  if (updates.subtasks_json !== undefined) { setClauses.push(`subtasks_json = $${paramIndex++}`); values.push(updates.subtasks_json || null); }
+  if (updates.name !== undefined) { setExprs.push(sql`name = ${updates.name}`); }
+  if (updates.description !== undefined) { setExprs.push(sql`description = ${updates.description ?? null}`); }
+  if (updates.category !== undefined) { setExprs.push(sql`category = ${updates.category || null}`); }
+  if (updates.title_template !== undefined) { setExprs.push(sql`title_template = ${updates.title_template}`); }
+  if (updates.priority !== undefined) { setExprs.push(sql`priority = ${updates.priority}`); }
+  if (updates.is_recurring !== undefined) { setExprs.push(sql`is_recurring = ${updates.is_recurring}`); }
+  if (updates.recurrence_pattern !== undefined) { setExprs.push(sql`recurrence_pattern = ${updates.recurrence_pattern || null}`); }
+  if (updates.reminder_minutes !== undefined) { setExprs.push(sql`reminder_minutes = ${updates.reminder_minutes || null}`); }
+  if (updates.due_date_offset_minutes !== undefined) { setExprs.push(sql`due_date_offset_minutes = ${updates.due_date_offset_minutes || null}`); }
+  if (updates.subtasks_json !== undefined) { setExprs.push(sql`subtasks_json = ${updates.subtasks_json || null}`); }
 
-  setClauses.push(`updated_at = $${paramIndex++}`);
-  values.push(new Date().toISOString());
-  values.push(id);
+  setExprs.push(sql`updated_at = ${new Date().toISOString()}`);
 
   await db.execute(sql`
-    UPDATE templates SET ${sql.raw(setClauses.slice(0, -1).join(', '))} WHERE id = $${paramIndex}
+    UPDATE templates SET ${sql.join(setExprs, sql`, `)} WHERE id = ${id}
   `);
 
   const result = await db.execute(sql`SELECT * FROM templates WHERE id = ${id}`);
@@ -1051,12 +1030,13 @@ function createTagFacade(): TagFacade {
       const setClauses: string[] = [];
       const values: (string | number)[] = [];
       let paramIndex = 1;
-      if (updates.name !== undefined) { setClauses.push(`name = $${paramIndex++}`); values.push(updates.name); }
-      if (updates.color !== undefined) { setClauses.push(`color = $${paramIndex++}`); values.push(updates.color); }
-      setClauses.push(`updated_at = $${paramIndex++}`);
-      values.push(new Date().toISOString());
-      values.push(id);
-      await db.execute(sql`UPDATE tags SET ${sql.raw(setClauses.slice(0, -1).join(', '))} WHERE id = $${paramIndex}`);
+      // Use drizzle-native interpolation to avoid dollar-quoted string issues
+      const tagSetExprs: ReturnType<typeof sql>[] = [];
+      let idx = 1;
+      if (updates.name !== undefined) { tagSetExprs.push(sql`name = ${updates.name}`); }
+      if (updates.color !== undefined) { tagSetExprs.push(sql`color = ${updates.color}`); }
+      tagSetExprs.push(sql`updated_at = ${new Date().toISOString()}`);
+      await db.execute(sql`UPDATE tags SET ${sql.join(tagSetExprs, sql`, `)} WHERE id = ${id}`);
       const result = await db.execute(sql`SELECT * FROM tags WHERE id = ${id}`);
       return mapTagRow(result.rows[0]);
     },
