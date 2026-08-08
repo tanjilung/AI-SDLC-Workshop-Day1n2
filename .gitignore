@@ -7,3 +7,4 @@ todos.db
 .env.local
 .DS_Store
 *.log
+tsconfig.tsbuildinfo
