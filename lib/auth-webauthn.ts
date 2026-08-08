@@ -323,7 +323,7 @@ export async function verifyLogin(
   const db = getDb();
 
   try {
-    await db.update(schema.authenticators).set({ counter: newCounter }).where(eq(schema.authenticators.credentialId, authenticator.credential_id)).run();
+    await db.execute(sql`UPDATE authenticators SET counter = ${newCounter} WHERE credential_id = ${authenticator.credential_id}`);
   } catch {
     // Counter update failure is non-fatal
   }
