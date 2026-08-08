@@ -262,7 +262,8 @@ export async function getCompletedTodosByUserId(
   db: ReturnType<typeof drizzle>,
   userId: string
 ): Promise<Todo[]> {
-  const rows = await db.select().from(schema.todos).where(eq(schema.todos.userId, userId) as any, eq(schema.todos.completed, true) as any);
+  const res = await db.execute(sql`SELECT * FROM todos WHERE user_id = ${userId} AND completed = true`);
+  const rows = res.rows;
   const mapped = rows.map((r: any) => mapTodoRow(r));
   // Order by completed_at desc
   mapped.sort((a, b) => new Date(b.completed_at || 0).getTime() - new Date(a.completed_at || 0).getTime());
