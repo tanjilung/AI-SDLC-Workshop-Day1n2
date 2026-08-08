@@ -337,7 +337,7 @@ export default function HomePage() {
         if (cancelled || !loaded) {
           return;
         }
-      } catch {
+      } catch (thrown) {
         if (!cancelled) {
           setFeedback({ tone: 'error', text: 'Unable to load your workspace right now.' });
         }
@@ -527,7 +527,8 @@ export default function HomePage() {
 
       setSuccess('Passkey added for this account.');
     } catch (thrown) {
-      setError(thrown instanceof Error ? thrown.message : 'Unable to add passkey');
+      const message = thrown instanceof Error ? thrown.message : 'Unknown error';
+      setError(`Unable to add passkey (${message}).`);
     } finally {
       setPasskeySubmitting(false);
     }
