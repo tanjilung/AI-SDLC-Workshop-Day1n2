@@ -1010,12 +1010,10 @@ function createTodoFacade(): TodoFacade {
       return true;
     },
     async findByRange(userId, startDate, endDate) {
-      const rows = await db
-        .select()
-        .from(schema.todos)
-        .where(eq(schema.todos.userId, userId) as any)
-        .where(gte(schema.todos.dueDate, startDate) as any)
-        .where(lte(schema.todos.dueDate, endDate) as any);
+      const startStr = startDate.toISOString().split('T')[0];
+      const endStr = endDate.toISOString().split('T')[0];
+      const res = await db.execute(sql`SELECT * FROM todos WHERE user_id = ${userId} AND due_date >= ${startStr} AND due_date <= ${endStr}`);
+      const rows = res.rows;
       return rows.map(mapTodoRow);
     },
     async findAllByUser(userId) {
