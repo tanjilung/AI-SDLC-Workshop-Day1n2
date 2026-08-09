@@ -55,28 +55,10 @@ function safeToIso(value: unknown): string | null {
   return d ? d.toISOString() : null;
 }
 
-/** Try pg-types DATE parser but ignore invalid results. */
-function tryPgDateParser(val: unknown) {
-  if (typeof val === 'string') {
-    const d = new Date(val);
-    if (!Number.isNaN(d.getTime())) return d;
-  }
-  // Return null so pg's native mapping can attempt its fallback instead of
-  // returning a string that drizzle will later misinterpret.
-  return null;
-}
-
-// Configure pg to return dates as strings instead of Date objects
-// Suppress pg-types errors since the API varies across versions
-try {
-  const _pgTypes = pg as any;
-  if (_pgTypes?.types?.setTypeParser) {
-    // @ts-ignore
-    _pgTypes.types.setTypeParser((_pgTypes.types as any)?.DATE || (null), tryPgDateParser);
-  }
-} catch {
-  // pg-types not available in this version
-}
+// NOTE: Do NOT use pg-types setTypeParser to override DATE/TIMESTAMP parsers.
+// On some pg versions it corrupts VARCHAR column parsing, breaking authenticator
+// lookups ("Authenticator not recognized" because credential_id string gets mangled).
+// We handle invalid date values in the app layer via safeToIso helpers instead.
 
 let dbInstance: ReturnType<typeof drizzle> | null = null;
 let poolInstance: Pool | null = null;
