@@ -31,13 +31,48 @@ export type {
   Authenticator,
 };
 
+// Safe date helpers — guard against invalid timestamps from the database
+// (e.g. PostgreSQL '0000-00-00', empty strings, or NaN Date objects).
+
+function isValidDate(d: unknown): d is Date {
+  return d instanceof Date && !Number.isNaN(d.getTime());
+}
+
+/** Parse a value that may come from pg as a Date (possibly invalid) or ISO string. */
+function safeParseDate(value: unknown): Date | null {
+  if (value === null || value === undefined) return null;
+  if (isValidDate(value)) return value;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const d = new Date(trimmed);
+  return isValidDate(d) ? d : null;
+}
+
+/** Convert a possibly-invalid date to ISO string, or return null. */
+function safeToIso(value: unknown): string | null {
+  const d = safeParseDate(value);
+  return d ? d.toISOString() : null;
+}
+
+/** Try pg-types DATE parser but ignore invalid results. */
+function tryPgDateParser(val: unknown) {
+  if (typeof val === 'string') {
+    const d = new Date(val);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  // Return null so pg's native mapping can attempt its fallback instead of
+  // returning a string that drizzle will later misinterpret.
+  return null;
+}
+
 // Configure pg to return dates as strings instead of Date objects
 // Suppress pg-types errors since the API varies across versions
 try {
   const _pgTypes = pg as any;
   if (_pgTypes?.types?.setTypeParser) {
     // @ts-ignore
-    _pgTypes.types.setTypeParser((_pgTypes.types as any)?.DATE || (null), () => '');
+    _pgTypes.types.setTypeParser((_pgTypes.types as any)?.DATE || (null), tryPgDateParser);
   }
 } catch {
   // pg-types not available in this version
@@ -226,16 +261,16 @@ export async function getTodosByUserId(
     user_id: r.userId,
     title: r.title,
     notes: r.notes ?? null,
-    due_date: r.dueDate ? new Date(r.dueDate).toISOString() : null,
+    due_date: safeToIso(r.dueDate),
     completed: r.completed,
     priority: r.priority,
     is_recurring: r.isRecurring,
     recurrence_pattern: r.recurrencePattern ?? null,
     reminder_minutes: r.reminderMinutes ?? null,
-    last_notification_sent: r.lastNotificationSent ? new Date(r.lastNotificationSent).toISOString() : null,
-    created_at: r.createdAt ? new Date(r.createdAt).toISOString() : null,
-    updated_at: r.updatedAt ? new Date(r.updatedAt).toISOString() : null,
-    completed_at: r.completedAt ? new Date(r.completedAt).toISOString() : null,
+    last_notification_sent: safeToIso(r.lastNotificationSent),
+    created_at: safeToIso(r.createdAt),
+    updated_at: safeToIso(r.updatedAt),
+    completed_at: safeToIso(r.completedAt),
   })) as Todo[];
 
   // Restore previous ordering: priority (high, medium, low) then created_at DESC
@@ -789,23 +824,21 @@ export async function getNextOccurrenceFromRecurrence(
 
 function mapTodoRow(row: any): Todo {
   const userId = row.user_id ?? row.userId;
-  const due = row.due_date ?? row.dueDate;
-  const lastNotif = row.last_notification_sent ?? row.lastNotificationSent;
   return {
     id: row.id,
     user_id: userId,
     title: row.title,
-    notes: row.notes,
-    due_date: due ? (typeof due === 'string' ? due : new Date(due).toISOString()) : null,
+    notes: row.notes ?? null,
+    due_date: safeToIso(row.due_date ?? row.dueDate),
     completed: row.completed,
     priority: row.priority as Priority,
     is_recurring: row.is_recurring ?? row.isRecurring,
     recurrence_pattern: row.recurrence_pattern ?? row.recurrencePattern,
     reminder_minutes: row.reminder_minutes ?? row.reminderMinutes,
-    last_notification_sent: lastNotif ? (typeof lastNotif === 'string' ? lastNotif : new Date(lastNotif).toISOString()) : null,
-    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
-    updated_at: typeof (row.updated_at ?? row.updatedAt) === 'string' ? (row.updated_at ?? row.updatedAt) : new Date(row.updated_at ?? row.updatedAt).toISOString(),
-    completed_at: (row.completed_at ?? row.completedAt) ? (typeof (row.completed_at ?? row.completedAt) === 'string' ? (row.completed_at ?? row.completedAt) : new Date(row.completed_at ?? row.completedAt).toISOString()) : null,
+    last_notification_sent: safeToIso(row.last_notification_sent ?? row.lastNotificationSent),
+    created_at: safeToIso(row.created_at ?? row.createdAt) ?? '',
+    updated_at: safeToIso(row.updated_at ?? row.updatedAt) ?? '',
+    completed_at: safeToIso(row.completed_at ?? row.completedAt),
   } as Todo;
 }
 
@@ -817,8 +850,8 @@ function mapSubtaskRow(row: any): Subtask {
     title: row.title,
     completed: row.completed,
     position: row.position,
-    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
-    updated_at: typeof (row.updated_at ?? row.updatedAt) === 'string' ? (row.updated_at ?? row.updatedAt) : new Date(row.updated_at ?? row.updatedAt).toISOString(),
+    created_at: safeToIso(row.created_at ?? row.createdAt) ?? '',
+    updated_at: safeToIso(row.updated_at ?? row.updatedAt) ?? '',
   };
 }
 
@@ -829,8 +862,8 @@ function mapTagRow(row: any): Tag {
     user_id: userId,
     name: row.name,
     color: row.color || '#3b82f6',
-    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
-    updated_at: typeof (row.updated_at ?? row.updatedAt) === 'string' ? (row.updated_at ?? row.updatedAt) : new Date(row.updated_at ?? row.updatedAt).toISOString(),
+    created_at: safeToIso(row.created_at ?? row.createdAt) ?? '',
+    updated_at: safeToIso(row.updated_at ?? row.updatedAt) ?? '',
   };
 }
 
@@ -848,8 +881,8 @@ function mapTemplateRow(row: any): Template {
     reminder_minutes: row.reminder_minutes ?? row.reminderMinutes,
     due_date_offset_minutes: row.due_date_offset_minutes ?? row.dueDateOffsetMinutes,
     subtasks_json: row.subtasks_json ?? row.subtasksJson,
-    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
-    updated_at: typeof (row.updated_at ?? row.updatedAt) === 'string' ? (row.updated_at ?? row.updatedAt) : new Date(row.updated_at ?? row.updatedAt).toISOString(),
+    created_at: safeToIso(row.created_at ?? row.createdAt) ?? '',
+    updated_at: safeToIso(row.updated_at ?? row.updatedAt) ?? '',
   };
 }
 
@@ -857,7 +890,7 @@ function mapHolidayRow(row: any): Holiday {
   return {
     date: row.date,
     name: row.name,
-    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
+    created_at: safeToIso(row.created_at ?? row.createdAt) ?? '',
   };
 }
 
@@ -865,8 +898,8 @@ function mapUserRow(row: any): User {
   return {
     id: row.id,
     username: row.username,
-    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
-    updated_at: typeof (row.updated_at ?? row.updatedAt) === 'string' ? (row.updated_at ?? row.updatedAt) : new Date(row.updated_at ?? row.updatedAt).toISOString(),
+    created_at: safeToIso(row.created_at ?? row.createdAt) ?? '',
+    updated_at: safeToIso(row.updated_at ?? row.updatedAt) ?? '',
   };
 }
 
@@ -877,8 +910,8 @@ function mapAuthenticatorRow(row: any): Authenticator {
     public_key: row.public_key ?? row.publicKey,
     counter: Number(row.counter ?? row.counter),
     transports: row.transports,
-    created_at: typeof (row.created_at ?? row.createdAt) === 'string' ? (row.created_at ?? row.createdAt) : new Date(row.created_at ?? row.createdAt).toISOString(),
-    updated_at: typeof (row.updated_at ?? row.updatedAt) === 'string' ? (row.updated_at ?? row.updatedAt) : new Date(row.updated_at ?? row.updatedAt).toISOString(),
+    created_at: safeToIso(row.created_at ?? row.createdAt) ?? '',
+    updated_at: safeToIso(row.updated_at ?? row.updatedAt) ?? '',
   };
 }
 
