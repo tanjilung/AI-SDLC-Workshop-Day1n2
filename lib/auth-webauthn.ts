@@ -288,7 +288,9 @@ export async function verifyLogin(
     return { verified: false, error: 'Login challenge expired' };
   }
 
-  const responseId = String(body.response.id ?? '');
+  // Normalize credential ID: browser may use different base64url padding than what was stored,
+  // so convert string -> Buffer -> normalized base64url to ensure consistent comparison.
+  const responseId = isoBase64URL.fromBuffer(isoBase64URL.toBuffer(body.response.id));
 
   const user = await getUserByCredentialId(getDb(), responseId);
   if (!user) {
