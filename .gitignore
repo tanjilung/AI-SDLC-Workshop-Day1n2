@@ -8,3 +8,5 @@ todos.db
 .DS_Store
 *.log
 tsconfig.tsbuildinfo
+.playwright/
+next-env.d.ts
