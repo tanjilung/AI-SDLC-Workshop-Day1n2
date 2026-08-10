@@ -1,4 +1,4 @@
-import { pgTable, varchar, text, timestamp, integer, serial, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, text, timestamp, integer, serial, boolean, date, bigint } from 'drizzle-orm/pg-core';
 
 export const todos = pgTable('todos', {
   id: varchar('id', { length: 255 }).primaryKey(),
@@ -59,7 +59,7 @@ export const templates = pgTable('templates', {
 });
 
 export const holidays = pgTable('holidays', {
-  date: varchar('date', { length: 10 }).primaryKey(),
+  date: date('date').primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 });
@@ -86,7 +86,7 @@ export const authenticators = pgTable('authenticators', {
   credentialId: varchar('credential_id', { length: 255 }).primaryKey(),
   userId: varchar('user_id', { length: 255 }).notNull(),
   publicKey: text('public_key').notNull(),
-  counter: integer('counter').default(0),
+  counter: bigint('counter', { mode: 'number' }).default(0),
   transports: text('transports'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),

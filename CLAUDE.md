@@ -54,11 +54,9 @@ A **Next.js 16** (App Router) full-stack ToDo application with authentication, c
 - DDL in `createTables()` runs at startup to create tables if missing (no formal migration system)
 - Facade pattern: `TodoFacade`, `TagFacade`, `SubtaskFacade`, `TemplateFacade`, `HolidayFacade`, `AuthFacade` — all API routes consume DB through facade accessors (`getTodoDB()`, `getTagDB()`, etc.) which add user-scoped authorization checks
 
-**Schema vs DDL differences (known):**
-| Feature | db-schema.ts (Drizzle) | createTables() (DDL) |
-|---------|----------------------|---------------------|
-| `holidays.date` | `varchar('date', { length: 10 })` | `DATE` |
-| `authenticators.counter` | `integer` | `BIGINT` |
+**Schema vs DDL alignment:** The Drizzle schema in `db-schema.ts` is now aligned with the PostgreSQL DDL in `createTables()`:
+- `holidays.date` uses `date()` type (maps to PostgreSQL `DATE`)
+- `authenticators.counter` uses `bigint(..., { mode: 'number' })` (maps to PostgreSQL `BIGINT`)
 
 Key tables and relationships:
 - `users` → `authenticators` (one-to-many)

@@ -124,11 +124,10 @@ types/                            # Type declarations
 - Facade pattern: `TodoFacade`, `TagFacade`, `SubtaskFacade`, `TemplateFacade`, `HolidayFacade`, `AuthFacade`
 - **Facade accessors are the PRIMARY API consumption pattern** — all API routes use `getTodoDB()`, `getTagDB()`, etc.
 
-**Schema vs DDL differences (confirmed):**
-| Feature | db-schema.ts (Drizzle) | createTables() (DDL) |
-|---------|----------------------|---------------------|
-| `holidays.date` | `varchar('date', { length: 10 })` | `DATE` |
-| `authenticators.counter` | `integer` | `BIGINT` |
+**Schema vs DDL alignment (confirmed):**
+The Drizzle schema in `lib/db-schema.ts` is now fully aligned with the PostgreSQL DDL in `createTables()`:
+- `holidays.date` uses `date('date')` (maps to PostgreSQL `DATE`)
+- `authenticators.counter` uses `bigint('counter', { mode: 'number' })` (maps to PostgreSQL `BIGINT`)
 
 ### API Structure (confirmed via filesystem scan)
 
@@ -250,12 +249,10 @@ Each facade adds user-scoped authorization checks (ownership verification) befor
 
 ## Critical Issues Summary
 
-### 1. **Drizzle Schema vs DDL Type Mismatches** (MEDIUM PRIORITY)
-`lib/db-schema.ts` defines types that don't match the actual PostgreSQL DDL in `createTables()`:
-- `holidays.date`: Drizzle = `varchar(10)` vs DDL = `DATE` (line 160)
-- `authenticators.counter`: Drizzle = `integer` vs DDL = `BIGINT` (line 187)
-
-**Impact:** Potential runtime type mismatches when Drizzle maps rows. BIGINT values may lose precision when mapped through integer in JS.
+### ~~1. **Drizzle Schema vs DDL Type Mismatches**~~ (RESOLVED)
+~~`lib/db-schema.ts` defined types that didn't match the actual PostgreSQL DDL in `createTables()`:~~
+- ~~`holidays.date`: Drizzle = `varchar(10)` vs DDL = `DATE`~~ → **Fixed:** Now uses `date('date')`
+- ~~`authenticators.counter`: Drizzle = `integer` vs DDL = `BIGINT`~~ → **Fixed:** Now uses `bigint('counter', { mode: 'number' })`
 
 ### 2. **No Formal Migration System** (HIGH PRIORITY)
 - No `drizzle.config.*`, no `migrations/` directory, no `drizzle-kit` in devDependencies
@@ -276,8 +273,8 @@ Both Drizzle ORM (`db.select().from(schema.todos)`) and raw SQL (`sql\`...\``) c
 
 ## Recommended Actions
 
-### Immediate (Fix schema consistency):
-1. **Align `db-schema.ts` with DDL** — Fix `holidays.date` to use `date()` type and `authenticators.counter` to use `bigint()` instead of `integer()`
+### ✅ Completed:
+1. **Align `db-schema.ts` with DDL** — Fixed `holidays.date` to use `date()` type and `authenticators.counter` to use `bigint()` instead of `integer()` (schema now matches DDL)
 
 ### Short-term:
 2. Add proper migration system (install `drizzle-kit`, create `drizzle.config.ts`, generate initial migration)
