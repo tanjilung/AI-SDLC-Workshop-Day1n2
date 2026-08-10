@@ -1,707 +1,297 @@
-# Complete Setup Guide: Todo App Development with GitHub Copilot
+# ToDo App — Complete Setup Guide
 
-This walkthrough will guide you from zero to running the Todo App with GitHub Copilot assistance.
-
-Reference : https://ai-sdlc-workshop-day1-production.up.railway.app/login
+A full-stack **Next.js 16** ToDo application with WebAuthn/Passkey authentication, PostgreSQL persistence, calendar views, recurring tasks, subtasks, tags, templates, notifications, export/import (JSON + CSV), and Singapore holidays support.
 
 ---
 
 ## Table of Contents
-1. [Install Visual Studio Code](#1-install-visual-studio-code)
-2. [Install GitHub Copilot](#2-install-github-copilot)
-3. [Install Node.js](#3-install-nodejs)
-4. [Clone and Setup Todo App](#4-clone-and-setup-todo-app)
-5. [Run the Application](#5-run-the-application)
-6. [Use GitHub Copilot with PRPs](#6-use-github-copilot-with-prps)
-7. [Verify Core Features](#7-verify-core-features)
-8. [Troubleshooting](#troubleshooting)
+1. [Prerequisites](#prerequisites)
+2. [Quick Start](#quick-start)
+3. [Environment Configuration](#environment-configuration)
+4. [Run the Application](#run-the-application)
+5. [Verify Core Features](#verify-core-features)
+6. [Testing](#testing)
+7. [Deployment](#deployment)
+8. [Project Structure](#project-structure)
+9. [Troubleshooting](#troubleshooting)
+10. [Additional Resources](#additional-resources)
 
 ---
 
-## 1. Install Visual Studio Code
+## Prerequisites
 
-### Windows
-1. Visit https://code.visualstudio.com/
-2. Click **"Download for Windows"**
-3. Run the downloaded installer (`VSCodeSetup-x64-*.exe`)
-4. Follow installation wizard:
-   - ✅ Accept license agreement
-   - ✅ Check "Add to PATH" option
-   - ✅ Check "Create a desktop icon" (optional)
-   - ✅ Check "Register Code as an editor for supported file types"
-5. Click **"Install"**
-6. Launch VS Code after installation
+| Requirement | Minimum Version | Notes |
+|-------------|----------------|-------|
+| Node.js | 22.13.0+ | As specified in `package.json` engines |
+| npm | 10.x+ | Bundled with Node.js 22 |
+| PostgreSQL | 15+ | Local or remote database instance |
+| Git | Latest | For cloning the repository |
 
-### macOS
-1. Visit https://code.visualstudio.com/
-2. Click **"Download for Mac"**
-3. Open the downloaded `.zip` file
-4. Drag **Visual Studio Code.app** to Applications folder
-5. Launch from Applications or Spotlight (Cmd+Space, type "Visual Studio Code")
+---
 
-### Linux (Ubuntu/Debian)
+## Quick Start
+
 ```bash
-# Update package index
-sudo apt update
+# Clone the repository
+git clone https://github.com/tanjilung/AI-SDLC-Workshop-Day1n2.git
+cd AI-SDLC-Workshop-Day1n2
 
 # Install dependencies
-sudo apt install software-properties-common apt-transport-https wget
-
-# Import Microsoft GPG key
-wget -q https://packages.microsoft.com/keys/microsoft.asc -O- | sudo apt-key add -
-
-# Add VS Code repository
-sudo add-apt-repository "deb [arch=amd64] https://packages.microsoft.com/repos/vscode stable main"
-
-# Install VS Code
-sudo apt update
-sudo apt install code
-
-# Launch VS Code
-code
-```
-
-### Verify Installation
-Open terminal/command prompt and run:
-```bash
-code --version
-```
-You should see version information like:
-```
-1.95.0
-912bb683695358a54ae0c670461738984cbb5b95
-x64
-```
-
----
-
-## 2. Install GitHub Copilot
-
-### Prerequisites
-- GitHub account (create at https://github.com if needed)
-- GitHub Copilot subscription (free trial available)
-
-### Step 1: Enable GitHub Copilot for Your Account
-1. Visit https://github.com/settings/copilot
-2. Click **"Start free trial"** or **"Get access to GitHub Copilot"**
-3. Choose plan:
-   - **Individual**: $10/month (30-day free trial)
-   - **Business**: $19/user/month
-   - **Free for students**: Apply at https://education.github.com/
-4. Complete payment setup (if applicable)
-5. Enable Copilot for your account
-
-### Step 2: Install Copilot Extension in VS Code
-1. Open **Visual Studio Code**
-2. Click **Extensions** icon in sidebar (or press `Ctrl+Shift+X` / `Cmd+Shift+X`)
-3. Search for **"GitHub Copilot"**
-4. Find extension by **GitHub** (verified publisher)
-5. Click **"Install"**
-6. Also install **"GitHub Copilot Chat"** extension (for chat functionality)
-
-### Step 3: Sign in to GitHub
-1. After installation, VS Code will prompt to sign in
-2. Click **"Sign in to GitHub"**
-3. Browser opens → Click **"Authorize Visual Studio Code"**
-4. Return to VS Code
-5. Bottom right should show "GitHub Copilot: Ready" status
-
-### Verify Copilot Installation
-1. Create a new file: `test.js`
-2. Type: `// function to add two numbers`
-3. Press `Enter`
-4. Copilot should suggest a function (shown in gray text)
-5. Press `Tab` to accept suggestion
-
-If you see suggestions, Copilot is working! ✅
-
----
-
-## 3. Install Node.js
-
-The Todo App requires **Node.js 20+** and **npm**.
-
-### Windows
-1. Visit https://nodejs.org/
-2. Download **"LTS"** version (recommended)
-3. Run installer (`node-v20.x.x-x64.msi`)
-4. Follow wizard:
-   - ✅ Accept license
-   - ✅ Keep default installation path
-   - ✅ Install npm package manager
-   - ✅ Install necessary tools (check box for native modules)
-5. Click **"Finish"**
-
-### macOS
-**Option 1: Official Installer**
-1. Visit https://nodejs.org/
-2. Download **"LTS"** version
-3. Open `.pkg` file and follow installer
-
-**Option 2: Using Homebrew**
-```bash
-# Install Homebrew if not already installed
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# Install Node.js
-brew install node@20
-
-# Verify
-node --version
-npm --version
-```
-
-### Linux (Ubuntu/Debian)
-```bash
-# Install Node.js 20.x
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Verify installation
-node --version
-npm --version
-```
-
-### Verify Node.js Installation
-Open terminal and run:
-```bash
-node --version  # Should show v20.x.x or higher
-npm --version   # Should show 10.x.x or higher
-```
-
----
-
-## 4. Clone and Setup Todo App
-
-### Option A: Clone from Git (if using version control)
-```bash
-# Navigate to your projects folder
-cd ~/Projects  # or C:\Projects on Windows
-
-# Clone repository (replace with actual repo URL)
-git clone <your-repo-url> todo-app
-cd todo-app
-```
-
-### Option B: Setup Existing Project
-If you already have the project folder:
-```bash
-# Navigate to project directory
-cd /path/to/todo-app
-```
-
-### Install Dependencies
-```bash
-# Install all npm packages (this may take a few minutes)
 npm install
-```
 
-### Configure Environment Variables
-Copy the example file and update secrets before running the app:
-
-```bash
-# Windows PowerShell
-Copy-Item .env.example .env.local
-
-# macOS / Linux
+# Configure environment variables
 cp .env.example .env.local
+# Edit .env.local with your settings (see below)
+
+# Start the development server
+npm run dev
 ```
 
-Required variables:
+The app will be available at **http://localhost:3000**.
 
-- `JWT_SECRET` - long random secret used to sign session cookies
-- `RP_ID` - relying party ID for WebAuthn (use your host name in production)
-- `RP_NAME` - display name shown during passkey registration
-- `RP_ORIGIN` - full origin for the current environment
-- `DATABASE_URL` - PostgreSQL connection string (e.g. postgres://user:pass@localhost:5432/todos)
-- `COOKIE_SECURE` - set to `"true"` only with valid HTTPS; use `"false"` for HTTP or self-signed certs (e.g. DuckDNS, local dev)
+---
 
-You should see output like:
-```
-added 345 packages, and audited 346 packages in 45s
-```
+## Environment Configuration
 
-### Project Structure Verification
-Ensure you have these key files:
-```
-todo-app/
-├── .github/
-│   ├── copilot-instructions.md    ← Copilot will read this
-│   └── PRPs/
-│       └── todo-app-core-features.md  ← Product requirements
-├── app/
-│   ├── page.tsx
-│   ├── layout.tsx
-│   └── api/
-├── lib/
-│   ├── db.ts
-│   ├── auth.ts
-│   └── timezone.ts
-├── package.json
-├── next.config.ts
-└── README.md
+Copy `.env.example` to `.env.local` and configure:
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `DATABASE_URL` | Yes | PostgreSQL connection string | `postgres://user:pass@localhost:5432/todos` |
+| `JWT_SECRET` | Yes | Secret for signing session cookies (32+ chars) | `openssl rand -hex 32` |
+| `RP_ID` | Yes | WebAuthn relying party ID (domain) | `localhost` (dev), `your-domain.com` (prod) |
+| `RP_NAME` | No | Display name for passkey prompts | `Todo App` |
+| `RP_ORIGIN` | Yes | Full origin URL for WebAuthn | `http://localhost:3000` (dev), `https://your-domain.com` (prod) |
+| `COOKIE_SECURE` | No | Set `"true"` only with valid HTTPS; `"false"` for HTTP/local dev | `false` |
+| `DEBUG_WEBAUTHN` | No | Enable verbose WebAuthn debug logging (set to any truthy value) | `true` |
+
+Generate a secure `JWT_SECRET`:
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 ```
 
 ---
 
-## 5. Run the Application
+## Run the Application
 
-### Start Development Server
+### Development Mode
 ```bash
 npm run dev
 ```
 
 Expected output:
 ```
-  ▲ Next.js 16.0.1
+  ▲ Next.js 16.0.0
   - Local:        http://localhost:3000
   - Environments: .env.local
-
- ✓ Starting...
- ✓ Ready in 1.5s
 ```
-
-### Access the Application
-1. Open browser
-2. Navigate to: **http://localhost:3000**
-3. You should see the **Login** page
 
 ### First-Time Setup
-1. **Register a new account**:
-   - Enter username (e.g., "testuser")
-   - Click "Register"
-   - Follow WebAuthn prompt (use fingerprint/face ID/PIN)
-   
-2. **Create your first todo**:
-   - Enter todo title: "Test my first todo"
-   - Click "Add"
-   - Todo appears in list ✅
+1. **Register a new account** at `http://localhost:3000/login`
+   - Enter a username
+   - Complete the WebAuthn/Passkey registration prompt (fingerprint, Face ID, PIN, or security key)
+2. **Create your first todo** from the main page
+3. Tables are auto-created on first access — no manual setup required
 
-### Production Verification Commands
-Before deploying, run:
+### Available Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Production build |
+| `npm start` | Start production server |
+| `npm run lint` | Run ESLint |
+| `npm test` | Run Playwright E2E tests |
+| `npm run test:ui` | Run Playwright in interactive UI mode |
+| `npm run test:unit` | Run unit tests |
+| `npm run test:report` | View HTML test report |
+| `npm run db:migrate` | Run database migrations |
+| `npm run seed:holidays` | Seed Singapore holidays |
+
+---
+
+## Verify Core Features
+
+### Authentication
+- Register with a username → WebAuthn prompt appears → Complete registration
+- Logout and login again → Session persists after page reload
+
+### Todo CRUD
+- Create, edit, complete, and delete todos
+- Set priority (High/Medium/Low) and due dates
+
+### Recurring Todos
+- Mark a todo as recurring with daily/weekly/monthly/yearly patterns
+- Completing a recurring todo automatically creates the next instance
+
+### Subtasks & Progress
+- Expand any todo to add subtasks
+- Watch the progress bar update in real-time as you complete subtasks
+
+### Tags
+- Open "Manage Tags" → Create colored tags → Assign to todos → Filter by tag
+
+### Templates
+- Save a configured todo as a template → Later create new todos instantly from it
+
+### Calendar View
+- Navigate to `/calendar` → See monthly view with todos and Singapore holidays
+
+### Export/Import
+- Export todos as JSON or CSV → Import JSON files back to restore data
+
+---
+
+## Testing
 
 ```bash
-npm run build
-npm run lint
-npm run test:unit
+# Run all E2E tests (Playwright)
 npm test
+
+# Run unit tests
+npm run test:unit
+
+# Interactive test UI
+npm run test:ui
+
+# View test report
+npm run test:report
 ```
 
-### Stop the Server
-Press `Ctrl+C` in the terminal running `npm run dev`
+**Note:** E2E tests use virtual WebAuthn authenticators configured in `playwright.config.ts`. Ensure browsers are installed:
+```bash
+npx playwright install
+```
 
 ---
 
-## 6. Use GitHub Copilot with PRPs
+## Deployment
 
-Now that everything is installed, let's use Copilot with the Product Requirement Prompts!
+This app supports multiple deployment platforms. See the dedicated guides:
 
-### Step 1: Open Project in VS Code
+| Platform | Guide | Notes |
+|----------|-------|-------|
+| Railway (Simple) | [`RAILWAY_SIMPLE_SETUP.md`](./RAILWAY_SIMPLE_SETUP.md) | Recommended — built-in GitHub integration |
+| Railway (Advanced) | [`RAILWAY_DEPLOYMENT.md`](./RAILWAY_DEPLOYMENT.md) | GitHub Actions + CLI secrets |
+| Coolify | [`COOLIFY_DEPLOYMENT.md`](./COOLIFY_DEPLOYMENT.md) | Self-hosted deployment with Docker |
+
+### Pre-Deployment Checklist
 ```bash
-# From project directory
-code .
+npm run build       # Ensure production build succeeds
+npm run lint        # No linting errors
+npm test            # All tests passing
 ```
-
-### Step 2: Verify Copilot Instructions Loaded
-1. Open **GitHub Copilot Chat** (Ctrl+Alt+I / Cmd+Alt+I)
-2. Type: `What timezone should I use for date operations?`
-3. Copilot should mention **Singapore timezone** and reference `lib/timezone.ts`
-   - If it does, the instructions are working! ✅
-
-### Step 3: Reference PRPs in Chat
-
-#### Example 1: Ask About Features
-```
-@workspace What are the acceptance criteria for the recurring todos feature?
-```
-
-Copilot will reference `.github/PRPs/todo-app-core-features.md` and list:
-- Can create recurring todo with pattern
-- Completing recurring todo creates next instance
-- Next instance has correct due date
-- etc.
-
-#### Example 2: Implement New Feature
-```
-Using the PRP for the tag system, help me add a new color picker for tag creation
-```
-
-Copilot will:
-1. Read PRP section on tags
-2. Understand technical constraints (hex colors, unique names)
-3. Suggest implementation following project patterns
-
-#### Example 3: Debug Using PRPs
-```
-I'm getting an error with recurring todos. Check the PRP requirements and help me fix it.
-```
-
-Copilot will:
-1. Review recurring todo specifications
-2. Check your code against PRP constraints
-3. Suggest fixes aligned with requirements
-
-### Step 4: Use Copilot Inline Suggestions
-
-**Scenario**: Add a new API route for todo statistics
-
-1. Create file: `app/api/stats/route.ts`
-2. Type comment:
-   ```typescript
-   // GET endpoint to return todo statistics following project auth pattern
-   ```
-3. Press Enter
-4. Copilot suggests code following:
-   - Session authentication pattern
-   - Singapore timezone handling
-   - Database query structure from `lib/db.ts`
-5. Press `Tab` to accept suggestions
-
-### Step 5: Ask Copilot to Generate Code from PRP
-
-Open Copilot Chat and try:
-```
-Using the PRP for export/import feature, generate the import validation logic
-```
-
-Copilot will create code that:
-- Validates JSON structure
-- Checks required fields (todos, subtasks, tags)
-- Handles ID remapping
-- Preserves relationships
 
 ---
 
-## 7. Verify Core Features
+## Project Structure
 
-Use this checklist to verify the app is working correctly.
-
-### ✅ Authentication
-```bash
-# Open http://localhost:3000/login
-1. Register with username: "copilot-test-user"
-2. Verify WebAuthn prompt appears
-3. Complete registration
-4. Logout and login again
-5. Verify session persists after page reload
 ```
-
-### ✅ Todo CRUD
-```
-1. Create todo: "Buy groceries"
-2. Set priority: High
-3. Set due date: Tomorrow 2:00 PM
-4. Edit todo title to: "Buy groceries and cook"
-5. Toggle completion checkbox
-6. Delete todo
-```
-
-### ✅ Recurring Todos
-```
-1. Create todo: "Daily standup"
-2. Check "Repeat" checkbox
-3. Select "Daily" pattern
-4. Set due date: Tomorrow 9:00 AM
-5. Complete the todo
-6. Verify new instance created for next day
-```
-
-### ✅ Subtasks
-```
-1. Create todo: "Prepare presentation"
-2. Click to expand subtasks
-3. Add subtask: "Create slides"
-4. Add subtask: "Rehearse speech"
-5. Check first subtask
-6. Verify progress shows "1/2 completed (50%)"
-```
-
-### ✅ Tags
-```
-1. Click "Manage Tags" button
-2. Create tag: "work" (color: #3B82F6)
-3. Create tag: "urgent" (color: #EF4444)
-4. Assign both tags to a todo
-5. Filter by "work" tag
-6. Verify only tagged todos shown
-```
-
-### ✅ Templates
-```
-1. Create todo with desired settings
-2. Click "Save as Template"
-3. Enter name: "Meeting Task"
-4. Add subtasks before saving
-5. Later, click "Use Template"
-6. Verify new todo created with all settings
-```
-
-### ✅ Reminders
-```
-1. Click "Enable Notifications" (grant permission)
-2. Create todo with due date in 20 minutes
-3. Set reminder: "15 minutes before"
-4. Wait 5 minutes
-5. Browser notification should appear
-```
-
-### ✅ Calendar View
-```
-1. Navigate to http://localhost:3000/calendar
-2. Verify current month displayed
-3. Create todos with different due dates
-4. Verify todos appear on correct calendar cells
-5. Click prev/next month buttons
-```
-
-### ✅ Search & Filter
-```
-1. Create multiple todos
-2. Type in search box: "meeting"
-3. Verify filtered results
-4. Select priority filter: "High"
-5. Verify combined filters work
-```
-
-### ✅ Export/Import
-```
-1. Create several todos with tags and subtasks
-2. Click "Export Todos"
-3. Verify JSON file downloads
-4. Delete all todos
-5. Click "Import Todos" and select file
-6. Verify todos restored with all metadata
+├── app/                        # Next.js App Router
+│   ├── layout.tsx              # Root layout
+│   ├── page.tsx                # Main todo list page
+│   ├── error.tsx               # Error boundary
+│   ├── globals.css             # Global styles (Tailwind)
+│   ├── login/page.tsx          # WebAuthn login/register
+│   ├── calendar/page.tsx       # Calendar view
+│   └── api/                    # 20 API route files
+├── lib/                        # 20 business logic modules + 2 hooks
+│   ├── db.ts                   # Database layer (~1250 lines)
+│   ├── db-schema.ts            # Drizzle ORM schema (9 tables)
+│   ├── todo-types.ts           # Shared TypeScript types
+│   ├── auth*.ts                # Authentication modules (4 files)
+│   └── *-core.ts               # Feature logic modules
+├── tests/                      # Test suite
+│   ├── *.spec.ts               # 12 Playwright E2E specs
+│   ├── unit/*.test.ts          # 15 unit test files
+│   ├── helpers.ts              # Shared test helpers
+│   └── global-setup.ts         # Virtual authenticator setup
+├── PRPs/                       # 11 Product Requirement Profiles
+├── scripts/                    # CLI utilities
+│   ├── migrate.ts              # Database migration script
+│   └── seed-holidays.ts        # Holiday seeder
+├── .env.example                # Environment variable template
+├── nixpacks.toml               # Railway/Nixpacks build config
+├── playwright.config.ts        # Playwright configuration
+├── package.json                # Dependencies + scripts
+└── tsconfig.json               # TypeScript configuration
 ```
 
 ---
 
 ## Troubleshooting
 
-### Copilot Not Working
+### Port 3000 Already in Use
 
-**Problem**: No suggestions appearing
-
-**Solutions**:
-1. Check Copilot status bar (bottom right)
-   - Should say "GitHub Copilot: Ready"
-2. Sign out and sign in again:
-   - Click Accounts icon (bottom left)
-   - Sign out of GitHub
-   - Sign in again
-3. Restart VS Code
-4. Check subscription at https://github.com/settings/copilot
-
-**Problem**: Copilot ignoring instructions
-
-**Solutions**:
-1. Verify `.github/copilot-instructions.md` exists
-2. Reload VS Code window (Ctrl+Shift+P → "Reload Window")
-3. Use `@workspace` in chat for better context
-4. Be specific: "Following the project's auth pattern..."
-
----
-
-### Node.js / npm Issues
-
-**Problem**: `npm install` fails
-
-**Solutions**:
+**Windows:**
 ```bash
-# Clear npm cache
-npm cache clean --force
-
-# Delete node_modules and package-lock.json
-rm -rf node_modules package-lock.json
-
-# Reinstall
-npm install
-```
-
-**Problem**: Port 3000 already in use
-
-**Solutions**:
-```bash
-# Option 1: Kill process on port 3000
-# Windows
 netstat -ano | findstr :3000
 taskkill /PID <PID> /F
+```
 
-# macOS/Linux
+**macOS/Linux:**
+```bash
 lsof -ti:3000 | xargs kill -9
+```
 
-# Option 2: Use different port
+Or use a different port:
+```bash
 npm run dev -- -p 3001
 ```
 
----
-
-### Database Issues
-
-**Problem**: Database locked or corrupted
-
-**Solutions**:
+### npm install Fails
 ```bash
-# Stop dev server (Ctrl+C)
-
-# Delete database file
-rm todos.db
-
-# Restart server (recreates database)
-npm run dev
+# Clear cache and reinstall
+npm cache clean --force
+rm -rf node_modules package-lock.json
+npm install
 ```
 
-**Problem**: Missing holidays
+### Database Connection Issues
+- Verify `DATABASE_URL` is set in `.env.local`
+- Ensure PostgreSQL is running and accessible
+- Tables are auto-created on first access — no manual DDL needed
 
-**Solutions**:
-```bash
-# Run seed script
-npx tsx scripts/seed-holidays.ts
-```
+### WebAuthn Not Working in Browser
+1. Use a supported browser: Chrome, Edge, Firefox, or Safari
+2. Must use HTTPS or `localhost` (WebAuthn requirement)
+3. Check WebAuthn support at https://webauthn.io
+4. For local dev, ensure `RP_ID=localhost` and `RP_ORIGIN=http://localhost:3000`
 
----
-
-### WebAuthn / Authentication Issues
-
-**Problem**: WebAuthn not working in browser
-
-**Solutions**:
-1. Use supported browser:
-   - ✅ Chrome/Edge (recommended)
-   - ✅ Firefox
-   - ✅ Safari
-2. Enable HTTPS or use localhost (required for WebAuthn)
-3. Check browser supports WebAuthn:
-   - Visit: https://webauthn.io
-   - Test if authentication works
-
-**Problem**: Can't login after registration
-
-**Solutions**:
-1. Clear browser data (cookies, localStorage)
-2. Delete `todos.db` and re-register
-3. Check browser console for errors (F12)
-
----
-
-### Playwright Testing Issues
-
-**Problem**: Tests fail to run
-
-**Solutions**:
+### Tests Fail to Run
 ```bash
 # Install Playwright browsers
 npx playwright install
 
-# Run with headed mode to see what's happening
-npx playwright test --headed
-
-# Run a specific feature test
-npx playwright test tests/11-authentication-webauthn.spec.ts
-```
-
----
-
-## Next Steps
-
-Now that everything is set up, you can:
-
-### 1. Explore with Copilot Chat
-```
-@workspace Show me how to add a new priority level called "urgent"
-```
-
-### 2. Implement New Features
-```
-Using the PRP format, help me add a "notes" field to todos
-```
-
-### 3. Fix Bugs
-```
-I'm getting undefined for authenticator.counter. Check the copilot instructions and fix it.
-```
-
-### 4. Run Tests
-```bash
-# Run unit tests
-npm run test:unit
-
-# Run browser tests
-npx playwright test
-
-# View test report
-npx playwright show-report
-```
-
-### 5. Build for Production
-```bash
-# Create production build
-npm run build
-
-# Start production server
-npm start
+# Run a specific test to debug
+npx playwright test tests/smoke.spec.ts --headed
 ```
 
 ---
 
 ## Additional Resources
 
-- **VS Code Docs**: https://code.visualstudio.com/docs
-- **GitHub Copilot Docs**: https://docs.github.com/en/copilot
+- **User Guide**: [`USER_GUIDE.md`](./USER_GUIDE.md) — Comprehensive feature documentation
+- **Codebase Analysis**: [`CODEBASE_ANALYSIS.md`](./CODEBASE_ANALYSIS.md) — Architecture deep dive
+- **Evaluation Checklist**: [`EVALUATION.md`](./EVALUATION.md) — Feature completeness tracker
+- **Claude Instructions**: [`CLAUDE.md`](./CLAUDE.md) — Development conventions for AI assistants
+- **Product Requirements**: [`PRPs/`](./PRPs/) — 11 detailed PRPs covering all features
 - **Next.js Docs**: https://nextjs.org/docs
 - **Playwright Docs**: https://playwright.dev/
 - **WebAuthn Guide**: https://webauthn.guide/
 
 ---
 
-## Quick Reference Commands
-
-```bash
-# Development
-npm run dev          # Start dev server
-npm run build        # Production build
-npm start            # Start production server
-npm run lint         # Run ESLint
-
-# Testing
-npm run test:unit                      # Run unit tests
-npx playwright test                    # Run browser tests
-npx playwright test --ui              # Interactive mode
-npx playwright test --headed          # See browser
-npx playwright show-report            # View results
-
-# Database
-npx tsx scripts/seed-holidays.ts      # Seed holidays
-# Inspect database (psql)
-psql "$DATABASE_URL" -c '\dt'     # list tables
-psql "$DATABASE_URL" -c 'SELECT * FROM todos LIMIT 5;'
-
-# Copilot
-Ctrl+Alt+I (Cmd+Alt+I)                # Open Copilot Chat
-Ctrl+I (Cmd+I)                        # Inline Copilot
-Tab                                    # Accept suggestion
-Esc                                    # Dismiss suggestion
-```
-
----
-
 ## Success Criteria
 
-You've successfully completed setup when:
+Your setup is complete when:
 
-- ✅ VS Code installed and running
-- ✅ GitHub Copilot active (shows suggestions)
-- ✅ Copilot Chat responds with project-specific answers
-- ✅ Todo app running on http://localhost:3000
-- ✅ Can register/login with WebAuthn
-- ✅ Can create and manage todos
-- ✅ Tests pass with `npm run test:unit` and `npx playwright test`
-- ✅ Copilot references PRPs when asked about features
+- ✅ `npm run dev` starts without errors
+- ✅ App loads at http://localhost:3000
+- ✅ You can register/login with WebAuthn
+- ✅ You can create, edit, and delete todos
+- ✅ Tests pass (`npm test` and `npm run test:unit`)
 
 ---
 
-**Congratulations!** 🎉 You're now ready to develop the Todo App with GitHub Copilot assistance.
-
-For questions or issues, refer to the troubleshooting section or ask Copilot Chat:
-```
-@workspace I'm having trouble with [describe issue]
-```
+**App Version**: 0.1.0 | **Node.js**: ≥22.13.0 | **Database**: PostgreSQL

@@ -414,9 +414,10 @@ Templates preserve:
 - ✅ Description
 
 **Note**: Templates do NOT include:
-- ❌ Specific due dates (you set when creating)
-- ❌ Tags (selected when creating from template)
-- ❌ Subtasks (added after creation)
+- ❌ Specific due dates (calculated from offset when creating)
+- ❌ Tag associations (selected when creating from template)
+
+**Note**: Templates DO include serialized subtasks, which are recreated when you use a template.
 
 ### Template Categories
 
@@ -810,10 +811,10 @@ ID,Title,Completed,Due Date,Priority,Recurring,Pattern,Reminder
 - Creation timestamps
 
 **What's NOT Imported**:
-- ❌ Original todo IDs (new IDs assigned)
-- ❌ User associations (links to importing user)
-- ❌ Tags (must be recreated/reassigned)
-- ❌ Subtasks (if not in export format)
+- ❌ Original todo IDs are replaced with new ones
+- ❌ User associations are remapped to the importing user
+
+**Note**: Tags are automatically created or reused during import if they match existing tag names.
 
 #### Import Validation
 
@@ -2029,8 +2030,9 @@ When reporting issues, include:
 
 ## Version Information
 
-**App Version**: 1.0
-**Last Updated**: November 2025
+**App Version**: 0.1.0
+**Node.js Requirement**: ≥22.13.0
+**Last Updated**: August 2026
 **Compatible Browsers**: Chrome 90+, Firefox 88+, Safari 14+, Edge 90+
 
 ---

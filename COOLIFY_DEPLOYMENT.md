@@ -46,9 +46,8 @@ Any PostgreSQL 15+ instance works. Copy the connection URL from your provider.
 
    | Setting | Value |
    |---|---|
-   | **Build Pack** | `Dockerfile` (only option) |
+   | **Build Pack** | `Nixpacks` (recommended — uses project's `nixpacks.toml`) |
    | **Node.js Version** | `22` |
-   | **Start Command** | (leave blank — uses Dockerfile CMD) |
 
 5. Under **Environment Variables**, add the following:
 
@@ -59,6 +58,7 @@ Any PostgreSQL 15+ instance works. Copy the connection URL from your provider.
    RP_ID=<your-domain.com>
    RP_NAME=Todo App
    RP_ORIGIN=https://<your-domain.com>
+   COOKIE_SECURE=true
    ```
 
    **Important notes:**
@@ -68,6 +68,7 @@ Any PostgreSQL 15+ instance works. Copy the connection URL from your provider.
      node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
      ```
    - If using Coolify's managed PostgreSQL, copy the `DATABASE_URL` from Step 2.
+   - Set `COOKIE_SECURE=true` since Coolify deployments use HTTPS automatically.
 
 6. Click **Deploy** (or **Save & Deploy**).
 
@@ -84,10 +85,11 @@ Any PostgreSQL 15+ instance works. Copy the connection URL from your provider.
 ## Step 5: First-Time Setup
 
 1. Visit your deployed URL in a browser.
-2. Register an account using WebAuthn (passkeys) or username/password.
-3. Your PostgreSQL database tables will be created automatically on first access.
+2. Register an account using WebAuthn (passkeys/biometric).
+3. Database tables are auto-created on first access.
 4. Seed Singapore holidays:
-   - Run the seed script via Coolify's **Console** / SSH, or:
+   - Migrations run automatically during the build phase (via `nixpacks.toml` start command)
+   - To seed holidays, run via Coolify's **Console** / SSH:
    ```bash
    npm run seed:holidays
    ```
@@ -97,11 +99,15 @@ Any PostgreSQL 15+ instance works. Copy the connection URL from your provider.
 | Variable | Required | Description | Example |
 |---|---|---|---|
 | `DATABASE_URL` | Yes | PostgreSQL connection string | `postgresql://user:pass@host:5432/db` |
-| `JWT_SECRET` | Yes | Secret for session signing | 64-char hex string |
-| `RP_ID` | Yes | WebAuthn Realm ID (domain) | `todo.yourdomain.com` |
-| `RP_NAME` | No | Display name for WebAuthn | `Todo App` |
-| `RP_ORIGIN` | Yes | Allowed origin for WebAuthn | `https://todo.yourdomain.com` |
+| `JWT_SECRET` | Yes | Secret for session signing (32+ char hex) | 96-char hex string |
+| `RP_ID` | Yes | WebAuthn relying party ID (domain without protocol) | `todo.yourdomain.com` |
+| `RP_NAME` | No | Display name for WebAuthn prompts | `Todo App` |
+| `RP_ORIGIN` | Yes | Full origin URL for WebAuthn (with protocol) | `https://todo.yourdomain.com` |
+| `COOKIE_SECURE` | Yes (prod) | Set `"true"` only with valid HTTPS | `true` |
 | `NODE_ENV` | Yes | Environment mode | `production` |
+| `DEBUG_WEBAUTHN` | No | Enable verbose WebAuthn debug logging to stderr | `true` |
+
+**Note:** `DEBUG_WEBAUTHN` is useful for troubleshooting registration/login failures. Set it to any truthy value (`true`, `1`) during debugging, then remove or unset it in production.
 
 ## Troubleshooting
 
@@ -109,16 +115,19 @@ Any PostgreSQL 15+ instance works. Copy the connection URL from your provider.
 - Ensure your Git branch is correctly selected in Coolify.
 - Check the build logs for specific errors.
 - Verify `package.json` dependencies are correct.
+- Test locally: `npm run build` should succeed before pushing.
 
 ### Database Connection Error
 - Confirm `DATABASE_URL` is set and accessible from Coolify.
 - If using Coolify's managed PostgreSQL, ensure the database resource is running.
 - Check that the connection URL uses `postgresql://` protocol (not `postgres://`).
+- The app connects with `ssl: false` which works for internal Docker networks.
 
 ### WebAuthn / Passkey Login Fails
-- Ensure `RP_ID` matches your domain exactly (no `https://`).
+- Ensure `RP_ID` matches your domain exactly (no `https://`, no path).
 - Ensure `RP_ORIGIN` includes the correct protocol (`https://`).
-- WebAuthn only works over HTTPS — make sure your domain is properly configured.
+- WebAuthn only works over HTTPS — make sure your domain has a valid certificate.
+- For local testing, use `localhost` as RP_ID and `http://localhost:3000` as RP_ORIGIN.
 
 ### App Shows 502 Bad Gateway
 - Wait a minute after deployment for the container to start.
@@ -133,16 +142,17 @@ Any PostgreSQL 15+ instance works. Copy the connection URL from your provider.
 
 ## Database Migrations
 
-This app uses Drizzle ORM with `CREATE TABLE IF NOT EXISTS` — tables are auto-created on first access. Additionally, a migration script is included to verify/initialize tables explicitly:
+This app uses Drizzle ORM with `CREATE TABLE IF NOT EXISTS` — tables are auto-created on first access. Additionally, the migration script runs automatically during deployment via `nixpacks.toml`:
 
-```bash
-npm run db:migrate
+```toml
+[start]
+cmd = "npm run db:migrate && npm run start"
 ```
 
 ### How it works
 
 - **`lib/db.ts`** configures the PostgreSQL pool with `ssl: false` for internal Docker connections (required when connecting between Coolify services).
-- **`Dockerfile`** runs `npm run db:migrate` before starting Next.js, ensuring tables exist on first deploy.
+- **`nixpacks.toml`** runs `npm run db:migrate` before starting Next.js, ensuring tables exist on first deploy.
 
 If you need to reset the database:
 1. Delete the database in Coolify.
