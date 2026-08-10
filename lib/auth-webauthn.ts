@@ -282,12 +282,16 @@ export async function verifyRegistration(
   const db = getDb();
   try {
     const { id: credId, publicKey, counter } = verification.registrationInfo.credential;
+    // Normalize credential ID to ensure consistent base64url encoding across registration and login.
+    // The @simplewebauthn/server library may produce different padding than the browser sends,
+    // so we normalize by round-tripping through the helper.
+    const normalizedCredId = isoBase64URL.fromBuffer(isoBase64URL.toBuffer(credId));
     debug('verifyRegistration -> DB branch', existingUser ? 'add passkey' : 'create user');
 
     if (existingUser) {
       // Adding a new passkey to an existing user
       await createAuthenticator(db, {
-        credential_id: credId,
+        credential_id: normalizedCredId,
         user_id: existingUser.id,
         public_key: isoBase64URL.fromBuffer(publicKey.slice()),
         counter: counter ?? 0,
@@ -299,7 +303,7 @@ export async function verifyRegistration(
       const newUser = await getUserByUsername(db, normalizedUsername);
       if (!newUser) throw new Error('Failed to create user');
       await createAuthenticator(db, {
-        credential_id: credId,
+        credential_id: normalizedCredId,
         user_id: newUser.id,
         public_key: isoBase64URL.fromBuffer(publicKey.slice()),
         counter: counter ?? 0,
