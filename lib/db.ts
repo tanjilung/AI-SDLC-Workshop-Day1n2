@@ -675,9 +675,9 @@ export async function getUserByUsername(
 
 export async function createUser(
   db: ReturnType<typeof drizzle>,
-  userData: Omit<User, 'id' | 'created_at' | 'updated_at'> & { password_hash?: string }
+  userData: Omit<User, 'id' | 'created_at' | 'updated_at'> & { id?: string; password_hash?: string }
 ): Promise<User> {
-  const id = crypto.randomUUID();
+  const id = (userData as any).id ?? crypto.randomUUID();
   const now = new Date();
   await db.insert(schema.users).values({ id, username: userData.username, passwordHash: userData.password_hash ?? null, createdAt: now, updatedAt: now });
   return { ...userData, id, created_at: now.toISOString(), updated_at: now.toISOString() } as User;
