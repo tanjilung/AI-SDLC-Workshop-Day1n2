@@ -11,7 +11,7 @@ A **Next.js 16** (React 19) full-stack ToDo application with authentication, cal
 |-------|-----------|
 | Framework | Next.js 16.0.0 (App Router) |
 | UI | React 19.0.0 + Tailwind CSS 4 |
-| Database | PostgreSQL via `pg` driver — raw SQL throughout (Drizzle ORM schema removed as dead code) |
+| Database | PostgreSQL via `pg` driver — **Drizzle ORM** (`drizzle-orm` ^0.45.2) with `lib/db-schema.ts` type definitions + raw SQL fallbacks |
 | Auth | WebAuthn (`@simplewebauthn/browser/server`) + JWT (`jose`) |
 | Testing | Playwright (E2E) + tsx (unit) |
 | Linting | ESLint 9 + TypeScript 5 |
@@ -32,7 +32,7 @@ app/                              # Next.js App Router
     page.tsx                      # Login/register UI
   calendar/
     page.tsx                      # Calendar view
-  api/                            # API routes (15+ route files)
+  api/                            # API routes (20 route files)
     auth/                         # Auth endpoints
       login-options/route.ts
       login-verify/route.ts
@@ -58,8 +58,9 @@ app/                              # Next.js App Router
       export/route.ts
       import/route.ts
 
-lib/                              # Business logic (20 .ts files + hooks/)
-  db.ts                           # Database layer: raw SQL, DDL, facades (1201 lines)
+lib/                              # Business logic (20 .ts + 2 hooks)
+  db.ts                           # Database layer: Drizzle ORM + raw SQL, DDL, facades (1250 lines)
+  db-schema.ts                    # Drizzle ORM schema definitions (93 lines, 9 tables)
   todo-core.ts                    # Core todo CRUD logic
   tag-core.ts                     # Tag management
   subtask-core.ts                 # Subtask management
@@ -71,7 +72,7 @@ lib/                              # Business logic (20 .ts files + hooks/)
   auth-challenges.ts              # Auth challenge flows
   auth-core.ts                    # Auth core
   auth-server.ts                  # Auth server logic
-  auth-webauthn.ts                # WebAuthn implementation
+  auth-webauthn.ts                # WebAuthn implementation (imports db-schema)
   import-core.ts                  # Import logic
   export-core.ts                  # Export logic
   filters.ts                      # Search/filter helpers
@@ -79,8 +80,10 @@ lib/                              # Business logic (20 .ts files + hooks/)
   timezone.ts                     # Timezone utilities
   todo-types.ts                   # TypeScript type definitions
   hooks/                          # React hooks (lib-level)
+    useDebounce.ts
+    useNotifications.ts
 
-tests/                            # 11 Playwright E2E + 15 unit tests
+tests/                            # 12 Playwright E2E + 15 unit tests
   unit/                           # 15 test files (see below)
   01-todo-crud-operations.spec.ts
   02-priority-system.spec.ts
@@ -106,21 +109,35 @@ types/                            # Type declarations
   better-sqlite3.d.ts
 ```
 
-### Database Architecture — **CRITICAL ISSUE**
+### Database Architecture — **Drizzle ORM + Raw SQL Hybrid**
 
-**Layer — Raw SQL (production, `lib/db.ts`)**
-- ALL queries use raw `sql\`...\`` statements via `db.execute()`
-- Tables created on first access via `createTables()` DDL (lines 80–186)
-- Facade pattern wraps raw SQL: `TodoFacade`, `TagFacade`, etc. (lines 885–1201)
-- No type-safe column references — everything is string-based
-- **Note:** The former Drizzle schema (`lib/drizzle-schema.ts`) was deleted on 2026-09-08 as confirmed dead code (0 imports across the codebase). DDL in `createTables()` is now the single source of truth.
+**Schema Definitions (`lib/db-schema.ts`, 93 lines)**
+- 9 Drizzle `pgTable` definitions: `todos`, `tags`, `todoTags`, `subtasks`, `templates`, `holidays`, `notifications`, `users`, `authenticators`
+- Imported by `lib/db.ts` (line 4) and `lib/auth-webauthn.ts` — actively used across the app
+
+**Layer — Drizzle ORM with raw SQL fallbacks (`lib/db.ts`, 1250 lines)**
+- Primary pattern: Drizzle query builder via `schema.*` references
+  - `db.insert(schema.todos).values({...})` — inserts
+  - `db.select().from(schema.todos).where(eq(...))` — selects
+  - `db.update(schema.todos).set({...}).where(eq(...))` — updates
+  - `db.delete(schema.todos).where(eq(...))` — deletes
+- Raw SQL (`sql\`...\``) used for: complex joins, ON CONFLICT, subqueries, bulk operations, date queries
+- DDL in `createTables()` (lines 99–204) runs at startup to create tables if missing
+- Facade pattern: `TodoFacade`, `TagFacade`, `SubtaskFacade`, `TemplateFacade`, `HolidayFacade`, `AuthFacade` (lines 931–1250)
+- **Facade accessors are the PRIMARY API consumption pattern** — all API routes use `getTodoDB()`, `getTagDB()`, etc.
+
+**Schema vs DDL differences (confirmed):**
+| Feature | db-schema.ts (Drizzle) | createTables() (DDL) |
+|---------|----------------------|---------------------|
+| `holidays.date` | `varchar('date', { length: 10 })` | `DATE` |
+| `authenticators.counter` | `integer` | `BIGINT` |
 
 ### API Structure (confirmed via filesystem scan)
 
 ```
 app/login/page.tsx          → Login/register UI
 app/calendar/page.tsx       → Calendar view
-app/api/auth/*              → 6 auth endpoints (login-options, login-verify, logout, me, register-options, register-verify)
+app/api/auth/*              → 6 auth endpoints
 app/api/holidays/route.ts   → Holiday CRUD
 app/api/notifications/check → Notification check
 app/api/subtasks/[id]       → Subtask update/delete
@@ -133,33 +150,45 @@ app/api/todos/              → Todo collection (GET, POST)
 app/api/todos/[id]          → Todo item (GET, PATCH, DELETE)
 app/api/todos/[id]/subtasks → Subtask sub-collection
 app/api/todos/[id]/tags     → Tag sub-collection
-app/api/todos/export        → Export todos as JSON
+app/api/todos/export        → Export todos as JSON/CSV
 app/api/todos/import        → Import todos from JSON
-Total: 15+ route files across 7 API modules
+Total: 20 route files across 7 API modules
 ```
 
 ---
 
 ## Business Logic Highlights
 
-### Recurrence System (`lib/recurrence.ts`)
+### Facade Pattern (confirmed active)
+All API routes consume the database layer through facade accessors:
+- `getTodoDB()` — used in 15+ API routes (todos, tags, templates, notifications, export/import)
+- `getTagDB()` — used in tag routes + todo-tags routes
+- `getSubtaskDB()` — used in subtask routes + template-use route
+- `getTemplateDB()` — used in template routes + template-use route
+- `getHolidayDB()` — used in holidays route + seed script
+- `getAuthenticatorDB()` / `getUserDB()` — used in auth flows
+
+Each facade adds user-scoped authorization checks (ownership verification) before delegating to the underlying Drizzle/raw SQL functions.
+
+### Recurrence System (`lib/recurrence.ts`, `lib/db.ts`)
 - Supports: daily, weekly, monthly, yearly
-- `calculateNextOccurrence()` at `db.ts` line 860–877 — basic date math (no timezone handling)
-- `expandRecurrence()` at `db.ts` line 742–756 — queries DB for recurring todos within a date range
+- `calculateNextOccurrence()` at `db.ts` line 906–923 — basic date math (no timezone handling)
+- `expandRecurrence()` at `db.ts` line 785–799 — raw SQL query for recurring todos within a date range
 
 ### Tag System (`lib/tag-core.ts`, `lib/db.ts`)
 - M:N relationship via `todo_tags` junction table
 - Tags have name (VARCHAR 100) + color (VARCHAR 7)
-- User-scoped (`user_id`)
+- User-scoped via facade authorization
 
 ### Subtask System (`lib/subtask-core.ts`, `lib/db.ts`)
 - Position-based ordering
 - Bulk position update support (`bulkUpdateSubtaskPositions`)
-- Cascade delete on parent todo
+- Cascade delete on parent todo (DB-level ON DELETE CASCADE)
 
 ### Template System (`lib/template-core.ts`, `lib/db.ts`)
 - Reusable todo structures with subtasks_json stored as TEXT (JSON string)
 - Supports recurrence, reminders, and priority in templates
+- Template-use flow creates a new todo + all subtasks from template
 
 ### Authentication (`lib/auth-*.ts` — 4 auth modules)
 - Username/password + WebAuthn (passkeys)
@@ -169,7 +198,8 @@ Total: 15+ route files across 7 API modules
 - Challenge flows in `auth-challenges.ts`
 
 ### Calendar View (`lib/calendar.ts`)
-- Month view generation in `buildCalendarMonth()` at `db.ts` line 546–598 — hardcoded date math, ignores DB data for events
+- Month view generation in `buildCalendarMonth()` at `db.ts` line 577–629
+- 42-day grid (6 weeks), padding from prev/next months
 - Singapore holidays integration via `singapore-holidays.ts`
 
 ---
@@ -221,54 +251,51 @@ Total: 15+ route files across 7 API modules
 
 ## Critical Issues Summary
 
-### 1. **Dead Drizzle Schema** ✅ RESOLVED (deleted 2026-09-08)
-`lib/drizzle-schema.ts` has been removed. It was never imported anywhere in the app and had numerous type mismatches with actual DDL. The app runs entirely on raw SQL — DDL in `createTables()` is now the single source of truth.
+### 1. **Drizzle Schema vs DDL Type Mismatches** (MEDIUM PRIORITY)
+`lib/db-schema.ts` defines types that don't match the actual PostgreSQL DDL in `createTables()`:
+- `holidays.date`: Drizzle = `varchar(10)` vs DDL = `DATE` (line 160)
+- `authenticators.counter`: Drizzle = `integer` vs DDL = `BIGINT` (line 187)
+
+**Impact:** Potential runtime type mismatches when Drizzle maps rows. BIGINT values may truncate to integer in JS mappings.
 
 ### 2. **No Migration System** (HIGH PRIORITY)
-- No `drizzle.config.*`, no `migrations/` directory, no `drizzle-kit` in dependencies
-- Table creation is hardcoded DDL in `createTables()` function (lines 80–186 of db.ts)
-- New environments rely on this runtime DDL — prone to drift between dev/staging/prod
+- No `drizzle.config.*`, no `migrations/` directory, no `drizzle-kit` in devDependencies
+- Table creation is hardcoded DDL in `createTables()` function (lines 99–204 of db.ts)
+- New environments rely on runtime DDL — prone to drift between dev/staging/prod
+- Schema changes require manual coordination
 
-**Impact:** Manual schema changes must be coordinated across all instances. No rollback capability.
-
-### 3. **No Type-Safe Queries** (MEDIUM PRIORITY)
-All queries use string column names — typos won't be caught at compile time:
-```typescript
-// db.ts line 196 - hardcoded strings, no compiler safety
-await db.execute(sql`
-  INSERT INTO todos (id, user_id, title, notes, due_date, ...)
-  VALUES (...)`)
-```
+### 3. **Mixed Query Styles** (LOW PRIORITY)
+Both Drizzle ORM (`db.select().from(schema.todos)`) and raw SQL (`db.execute(sql\`...\``) coexist in the same file. This creates maintenance ambiguity — it's unclear which pattern to follow for new features. Raw SQL is used for ~30% of operations (complex joins, subqueries, ON CONFLICT clauses).
 
 ### 4. **pg Pool SSL for Docker/Internal Connections** (RESOLVED)
-`lib/db.ts` line 55 — `ssl: false` is set for internal Docker/Railway/Coolify connections where the pool connects to PostgreSQL via localhost or internal network. If deploying with external PostgreSQL over public internet, re-enable SSL with `rejectUnauthorized: true`.
+`lib/db.ts` line 73 — `ssl: false` is set for internal Docker/Railway/Coolify connections where the pool connects to PostgreSQL via localhost or internal network. If deploying with external PostgreSQL over public internet, re-enable SSL with `rejectUnauthorized: true`.
 
-### 5. **Facade Pattern Overhead** (LOW PRIORITY)
-`db.ts` lines 885–1201 define facade interfaces and factory functions (`TodoFacade`, `TagFacade`, etc.) that are thin wrappers around the raw SQL functions. Adds indirection without adding value since they're not used by any application code outside db.ts.
+### 5. **Facade Pattern Adds Indirection** (LOW PRIORITY)
+6 facade interfaces + factory functions (lines 931–1246) add ~300 lines of indirection between API routes and DB functions. However, facades DO provide value: they enforce user-scoped authorization checks before every DB operation. This is not pure overhead — it's a security pattern.
 
 ---
 
 ## Recommended Actions
 
-### Immediate (Fix DB layer consistency):
-1. **Option A: Fully adopt Drizzle ORM** — Migrate all raw SQL queries to Drizzle's query builder, add `drizzle-kit` migrations
-2. ✅ **Option B complete** — `lib/drizzle-schema.ts` deleted; DDL in `createTables()` is the single source of truth.
+### Immediate (Fix schema consistency):
+1. **Align `db-schema.ts` with DDL** — Fix `holidays.date` to use `date()` type and `authenticators.counter` to use `bigint()` instead of `integer()`
 
 ### Short-term:
-3. Add proper migration system (drizzle-kit or similar)
-4. Fix SSL config for production (`rejectUnauthorized: true`)
-5. Review existing unit tests for coverage gaps and test quality
+2. Add proper migration system (install `drizzle-kit`, create `drizzle.config.ts`, generate initial migration)
+3. Review raw SQL usage — migrate remaining raw queries to Drizzle builder where feasible for consistency
+4. Fix SSL config for production deployments (`rejectUnauthorized: true` when needed)
 
 ### Long-term:
-6. Consider type generation (e.g., `drizzle-kit generate` → auto-generated TS types for all tables)
-7. Migrate from `pg` to a more modern wrapper if desired (Kysely, Prisma, etc.) — but only after deciding on Option A or B above
+5. Consider type generation (e.g., `drizzle-kit generate`) for auto-generated TS types from actual DB schema
+6. Evaluate whether to standardize on Drizzle ORM fully or document the hybrid approach as intentional
 
 ---
 
 ## Files Count
-- **lib/**: 19 TypeScript modules + hooks/ subdirectory
+- **lib/**: 20 TypeScript modules + 2 hooks = 22 files total
 - **tests/unit/**: 15 unit test files
-- **tests/**: 12 Playwright E2E spec files (11 feature + smoke)
+- **tests/**: 12 Playwright E2E spec files (11 feature + smoke) + global-setup.ts + helpers.ts = 14 files
 - **PRPs/**: 11 requirement docs
-- **API routes**: 15+ route files across 7 API modules
+- **API routes**: 20 route files across 7 API modules
+- **app/ pages**: 6 files (layout, page, error, login, calendar + globals.css)
 - **Total deps**: 8 production + 14 dev = 22 total
