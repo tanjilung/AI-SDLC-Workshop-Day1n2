@@ -687,13 +687,17 @@ export async function getUserByCredentialId(
   db: ReturnType<typeof drizzle>,
   credentialId: string
 ): Promise<User | null> {
-  const rows = await db
-    .select()
-    .from(schema.users)
-    .innerJoin(schema.authenticators, eq(schema.users.id, schema.authenticators.userId))
-    .where(eq(schema.authenticators.credentialId, credentialId))
-    .limit(1);
-  return rows[0] ? mapUserRow(rows[0]) : null;
+  // Use raw SQL with explicit column selection to avoid Drizzle's ambiguous
+  // column mapping when both users and authenticators tables have overlapping field names.
+  const res = await db.execute(sql`
+    SELECT u.id, u.username, u.password_hash, u.created_at, u.updated_at
+    FROM users u
+    INNER JOIN authenticators a ON u.id = a.user_id
+    WHERE a.credential_id = ${credentialId}
+    LIMIT 1
+  `);
+  if (res.rows.length === 0) return null;
+  return mapUserRow(res.rows[0]);
 }
 
 export async function createAuthenticator(
