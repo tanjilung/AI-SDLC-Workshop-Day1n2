@@ -290,14 +290,24 @@ export async function verifyLogin(
 
   // Normalize credential ID: browser may use different base64url padding than what was stored,
   // so convert string -> Buffer -> normalized base64url to ensure consistent comparison.
-  const responseId = isoBase64URL.fromBuffer(isoBase64URL.toBuffer(body.response.id));
+  const rawCredentialId = body.response.id;
+  const responseId = isoBase64URL.fromBuffer(isoBase64URL.toBuffer(rawCredentialId));
+
+  console.error('[WebAuthn Login Debug]', {
+    rawCredentialId,
+    normalizedResponseId: responseId,
+    rawLength: rawCredentialId.length,
+    normalizedLength: responseId.length,
+  });
 
   const user = await getUserByCredentialId(getDb(), responseId);
   if (!user) {
+    console.error('[WebAuthn Login Debug] User not found for credential_id:', responseId);
     return { verified: false, error: 'User not found' };
   }
 
   const authenticators = await getAuthenticatorsByUserId(getDb(), user.id);
+  console.error('[WebAuthn Login Debug] Stored authenticator IDs:', authenticators.map(a => ({ credential_id: a.credential_id, length: a.credential_id.length })));
   const authenticator = authenticators.find((a) => a.credential_id === responseId);
 
   if (!authenticator) {

@@ -1,16 +1,20 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { createDatabase, createHolidayDB } from '../lib/db';
+import { sql } from 'drizzle-orm';
+import { getDb, createTables } from '../lib/db';
 import { singaporeHolidays } from '../lib/singapore-holidays';
 
 export default async function globalSetup() {
-  const databasePath = path.resolve(process.cwd(), '.playwright', 'todos-e2e.db');
-  fs.rmSync(databasePath, { force: true });
+  const db = getDb();
+  await createTables(db);
 
-  const db = createDatabase(databasePath);
-  try {
-    createHolidayDB(db).upsertMany(singaporeHolidays);
-  } finally {
-    db.close();
+  // Seed Singapore holidays using parameterized raw SQL
+  for (const holiday of singaporeHolidays) {
+    try {
+      await db.execute(sql`
+        INSERT INTO holidays (date, name) VALUES (${holiday.date}, ${holiday.name})
+        ON CONFLICT (date) DO UPDATE SET name = ${holiday.name}
+      `);
+    } catch {
+      // Holiday already exists or other non-fatal error
+    }
   }
 }
